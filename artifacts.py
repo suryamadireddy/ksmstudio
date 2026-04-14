@@ -19,11 +19,14 @@ Flags:
                      to Supabase. Use this to verify structure before saving.
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import re
 import sys
 from datetime import datetime, timezone
+from typing import Union
 
 import anthropic
 
@@ -449,7 +452,7 @@ def _extract_sections(text: str, headings: list[str]) -> dict[str, str]:
     return sections
 
 
-def _parse_field(content: str, field_type: str) -> str | list | dict:
+def _parse_field(content: str, field_type: str) -> Union[str, list, dict]:
     """
     Parse section content according to its declared type.
 
@@ -666,10 +669,10 @@ CONTEXT_BUILDERS = {
 # ── Streaming ─────────────────────────────────────────────────────────────────
 
 MAX_TOKENS: dict[str, int] = {
-    "prd":           8192,
-    "mvp_scope":     8192,
-    "next_steps":    4096,
-    "builder_brief": 4096,
+    "prd":           16000,
+    "mvp_scope":     16000,
+    "next_steps":    16000,
+    "builder_brief": 16000,
 }
 
 
@@ -707,14 +710,27 @@ def stream_stage(
             if block.type == "text":
                 full_text += block.text
 
-        if final.stop_reason != "pause_turn":
+        if final.stop_reason not in ("pause_turn", "max_tokens"):
             print()  # trailing newline
             break
 
-        messages.append({
-            "role": "assistant",
-            "content": [b.model_dump() for b in final.content],
-        })
+        # Continuation: serialize only the fields the API accepts.
+        # model_dump() includes internal SDK fields that cause 400 errors.
+        serialized = []
+        for b in final.content:
+            if b.type == "thinking":
+                serialized.append({"type": "thinking", "thinking": b.thinking, "signature": b.signature})
+            elif b.type == "text":
+                serialized.append({"type": "text", "text": b.text})
+
+        # Assistant turn must not end with a thinking block.
+        while serialized and serialized[-1]["type"] == "thinking":
+            serialized.pop()
+        if not serialized:
+            print("\n\033[33m⚠ Token budget exhausted during thinking — no text output.\033[0m")
+            break
+        messages.append({"role": "assistant", "content": serialized})
+        messages.append({"role": "user", "content": "Continue."})
     else:
         print("\n\033[33m⚠ Hit continuation limit — output may be incomplete.\033[0m")
 

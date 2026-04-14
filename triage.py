@@ -21,11 +21,13 @@ Writes to `ideas.triage` (JSONB):
       "category":          str,
       "provisional":       bool,
       "triage_reasoning":  str,
-      "disposition":       "pursue" | "park" | "kill",
+      "disposition":       "pursue" | "potential" | "park" | "discard",
       "raw_transcript":    [...],
       "triaged_at":        iso8601
     }
 """
+
+from __future__ import annotations
 
 import json
 import sys
@@ -143,8 +145,14 @@ The integer is derived mechanically from effort_score and impact_score:
 If the scores fall in a gap (e.g. effort=3, impact=3), assign the nearest category \
 by treating impact ≥ 3 as the tiebreaker for category 2 vs 4.
 
+Disposition is derived directly from category:
+- category = 1 → disposition: pursue
+- category = 2 → disposition: potential
+- category = 3 → disposition: park
+- category = 4 → disposition: discard
+
 If confidence < 3, mark provisional as true regardless of scores. Disposition \
-defaults to park until confidence improves.
+still follows category — do not override it based on confidence.
 
 ## Behavioral rules
 - Never ask more than two questions at once. One is better.
@@ -259,11 +267,13 @@ COMPLETE_TOOL: dict = {
             },
             "disposition": {
                 "type": "string",
-                "enum": ["pursue", "park", "kill"],
+                "enum": ["pursue", "potential", "park", "discard"],
                 "description": (
-                    "'pursue' = worth sharpening now. "
-                    "'park' = interesting but not the right time or missing key info. "
-                    "'kill' = fundamental flaw makes this not worth pursuing."
+                    "Derived directly from category: "
+                    "'pursue' = category 1 (low effort, high impact). "
+                    "'potential' = category 2 (high effort, high impact). "
+                    "'park' = category 3 (low effort, low impact). "
+                    "'discard' = category 4 (high effort, low impact)."
                 ),
             },
         },
@@ -409,6 +419,18 @@ def _validate_fields(idea_data: dict) -> dict:
         )
         data["category"] = derived
 
+    # ── disposition ──────────────────────────────────────────────────────────
+    CATEGORY_DISPOSITION = {1: "pursue", 2: "potential", 3: "park", 4: "discard"}
+    VALID_DISPOSITIONS = set(CATEGORY_DISPOSITION.values())
+    disp = data.get("disposition")
+    expected = CATEGORY_DISPOSITION.get(data["category"])
+    if disp not in VALID_DISPOSITIONS or disp != expected:
+        print(
+            f"\033[33m⚠ disposition {disp!r} corrected to {expected!r} "
+            f"(category {data['category']})\033[0m"
+        )
+        data["disposition"] = expected
+
     # ── time_horizon ─────────────────────────────────────────────────────────
     th = data.get("time_horizon", "")
     mapped = _TIME_HORIZON_MAP.get(str(th).lower().strip())
@@ -428,13 +450,14 @@ def _validate_fields(idea_data: dict) -> dict:
     return data
 
 
-def save_idea(idea_data: dict, transcript: list, raw_input: str) -> str:
+def save_idea(idea_data: dict, transcript: list, raw_input: str, domain: str = "product") -> str:
     """Insert a new row into `ideas`; return the generated idea_id."""
     db = get_client()
     validated = _validate_fields(idea_data)
     row = {
         "id": str(uuid.uuid4()),
         "raw_input": raw_input,
+        "domain": domain,
         "triage": {
             **validated,
             "raw_transcript": transcript,
@@ -517,12 +540,21 @@ def run_triage() -> str:
         print("Tip: Be more concise so Claude can complete the triage sooner.")
         sys.exit(1)
 
+    # ── Domain prompt ─────────────────────────────────────────────────────────
+    VALID_DOMAINS = {"product", "process", "business", "personal", "other"}
+    print("\nDomain? (product/process/business/personal/other): ", end="", flush=True)
+    try:
+        domain_input = input().strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        domain_input = ""
+    domain = domain_input if domain_input in VALID_DOMAINS else "product"
+
     # ── Persist to Supabase ───────────────────────────────────────────────────
     print("\n" + "─" * 62)
     print("  Saving idea to Supabase...")
 
     try:
-        idea_id = save_idea(idea_data, transcript, raw_input)
+        idea_id = save_idea(idea_data, transcript, raw_input, domain)
     except Exception as exc:
         print(f"\n\033[31m✗ Save failed:\033[0m {exc}")
         print("\nExtracted idea (not saved):")
