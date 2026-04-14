@@ -1,0 +1,25 @@
+import { createClient } from "@/lib/supabase/server";
+import { NextRequest } from "next/server";
+
+export async function POST(request: NextRequest) {
+  try {
+    const { conversation_id, idea_id, content } = await request.json();
+    if (!conversation_id || !idea_id || !content) {
+      return new Response(JSON.stringify({ error: "missing fields" }), { status: 400 });
+    }
+
+    const supabase = await createClient();
+    await supabase.from("messages").insert({
+      id: crypto.randomUUID(),
+      conversation_id,
+      idea_id,
+      role: "idea",
+      content,
+      created_at: new Date().toISOString(),
+    });
+
+    return new Response(JSON.stringify({ ok: true }), { status: 200 });
+  } catch (err: any) {
+    return new Response(JSON.stringify({ error: err.message }), { status: 500 });
+  }
+}

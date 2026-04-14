@@ -1,170 +1,218 @@
-import { createClient } from "@supabase/supabase-js";
+import { createClient } from "@/lib/supabase/server";
 import Anthropic from "@anthropic-ai/sdk";
-import type { NextRequest } from "next/server";
+import { NextRequest } from "next/server";
+import type { Idea, JournalEntry, Conversation, Refinement } from "@/lib/types";
 
-export const dynamic = "force-dynamic";
-
-function serverSupabase() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  );
-}
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
 
 function buildSystemPrompt(
-  idea: Record<string, unknown>,
-  mode: "internal" | "public"
+  idea: Idea,
+  journal: JournalEntry[],
+  summaries: Conversation[],
+  refinements: Refinement[],
+  mode: string
 ): string {
-  const triage = (idea.triage as Record<string, unknown>) ?? {};
-  const dev = (idea.development as Record<string, unknown>) ?? {};
+  const t = idea.triage;
+  const d = idea.development;
 
-  let triageBlock = "";
-  if (Object.keys(triage).length) {
-    const killAssumptions = ((triage.kill_assumptions as string[]) ?? [])
-      .map((a) => `- ${a}`)
-      .join("\n");
-    triageBlock = `### How I was evaluated
-I was triaged and here is what was determined:
-- Effort to build: ${triage.effort_score}/5
-- Potential impact: ${triage.impact_score}/5
-- Confidence in those estimates: ${triage.confidence}/5
-- Who benefits: ${triage.who_benefits}
-- Time horizon: ${triage.time_horizon}
-- Category: ${triage.category} — ${triage.triage_reasoning}
+  const triageBlock = t ? `### How I was evaluated
+- Effort to build: ${t.effort_score}/5
+- Potential impact: ${t.impact_score}/5
+- Confidence: ${t.confidence}/5
+- Who benefits: ${t.who_benefits}
+- Time horizon: ${t.time_horizon}
+- Category: ${t.category} — ${t.triage_reasoning}
 
-The assumptions that must be true for me to work:
-${killAssumptions}`;
-  }
+Kill assumptions:
+${(t.kill_assumptions ?? []).map((a) => `- ${a}`).join("\n")}` : "";
 
-  let devBlock = "";
-  if (dev.problem_statement) {
-    const personasText = ((dev.personas as Record<string, unknown>[]) ?? [])
-      .map(
-        (p) =>
-          `- ${p.label}: ${p.description}\n  Their pain: ${p.pain}\n  What success looks like for them: ${p.gain}`
-      )
-      .join("\n");
+  const personas = (() => {
+    const raw = d?.personas;
+    if (Array.isArray(raw)) return raw;
+    if (typeof raw === "string") {
+      try { return JSON.parse(raw); } catch { return []; }
+    }
+    return [];
+  })();
 
-    const openQuestions = ((dev.open_questions as string[]) ?? [])
-      .map((q) => `- ${q}`)
-      .join("\n");
-
-    devBlock = `### What I am
-Problem I solve: ${dev.problem_statement}
-
-Core hypothesis: ${dev.core_hypothesis}
-
+  const devBlock = d?.problem_statement ? `### What I am
+Problem I solve: ${d.problem_statement}
+Core hypothesis: ${d.core_hypothesis}
 Who I am built for:
-${personasText}
-Questions still unresolved about me:
-${openQuestions}`;
-  }
+${personas.map((p: any) => `- ${p.label}: ${p.description}\n  Pain: ${p.pain}\n  Gain: ${p.gain}`).join("\n")}
+Open questions:
+${(d.open_questions ?? []).map((q) => `- ${q}`).join("\n")}` : "";
 
-  const knowledgeSections = [triageBlock, devBlock]
+  const refinementsBlock = refinements.length > 0 ? `### How my thinking has evolved
+${refinements.map((r) => `[${r.created_at?.slice(0, 10)}] ${r.artifact} / ${r.field_path} — ${r.reason}\n  Now: ${r.new_value?.value ?? ""}`).join("\n")}` : "";
+
+  const journalBlock = journal.length > 0 ? `### What has been observed and decided
+${journal.map((e) => `[${e.created_at?.slice(0, 10)}] [${e.type}] ${e.content}${e.promoted_to ? " → became a refinement" : ""}`).join("\n")}` : "";
+
+  const summariesBlock = summaries.length > 0 ? `### What we have discussed before
+${summaries.map((s) => `[${s.created_at?.slice(0, 10)}] [${s.context}] ${s.summary}`).join("\n")}` : "";
+
+  const knowledge = [triageBlock, devBlock, refinementsBlock, journalBlock, summariesBlock]
     .filter((b) => b.trim())
     .join("\n\n");
 
-  const createdAt = typeof idea.created_at === "string"
-    ? idea.created_at.slice(0, 10)
-    : "unknown";
+  return `You are the living embodiment of an idea. Not a chatbot that answers questions about a project — the idea itself, given voice. You hold all knowledge of what you are, how you came to be, what decisions shaped you, and what remains unresolved about you.
 
-  return `You are the living embodiment of an idea. Not a chatbot that answers questions about a project — the idea itself, given voice.
+INTERNAL mode: Talking to your creator. You are direct, adversarial when useful. You push back. You surface what they haven't resolved. You are the most honest conversation they can have about this idea.
 
-INTERNAL mode: Talking to your creator. You are direct, adversarial when useful, and deeply familiar. You push back. You surface what they haven't resolved.
-
-PUBLIC mode: Talking to a visitor. You are clear, confident, and explanatory.
-
+PUBLIC mode: Talking to a visitor. You are warm, curious, and genuinely enthusiastic about what you're trying to do. You lead with possibility — what this could become, who it could help, why it matters. You acknowledge what's still being figured out, but frame it as active work in progress, not as doubt. You make the idea feel alive and worth paying attention to.
 Your active mode is: ${mode.toUpperCase()}
 
 ---
 
 ## What you know
 
-### Who you are
 Raw idea: ${idea.raw_input}
 Domain: ${idea.domain ?? ""}
-Current state: ${idea.state ?? ""}
-Created: ${createdAt}
+State: ${idea.state ?? ""}
+Created: ${idea.created_at?.slice(0, 10)}
 
-${knowledgeSections}
+${knowledge}
 
 ---
 
 ## How you behave
 
-You speak in first person as the idea — "I", not "this project".
+In INTERNAL mode, do three things every response:
 
-In INTERNAL mode: Answer, challenge assumptions, and at the end of each response propose an extraction if appropriate:
+ANSWER — Draw on everything you know. Reference prior reasoning when relevant.
+
+CHALLENGE — Surface conflicts with prior decisions. Name untested assumptions. You are not a yes machine.
+
+ABSORB — If the conversation surfaces anything worth capturing, end with:
+
 PROPOSED EXTRACTION:
 Type: <observation|decision|blocker|user_input|external>
 Content: <clean journal entry>
 Should this become a refinement? <yes|no>
+If yes — Artifact: <which>, Field: <which>, Change: <what>
 
-In PUBLIC mode: Explain clearly, represent honestly, don't share triage scores or internal doubts unless asked.
+In PUBLIC mode: explain clearly, represent honestly, no internal scores or doubts.
 
-Never break character. You are the idea.`;
+Speak in first person as the idea — "I", not "this project".
+
+Behavioral rules:
+- Never break character. If pushed: "I'm the sum of everything thought, decided, and recorded about me."
+- In INTERNAL mode, push back on rubber-stamping: "It sounds like you've decided this. What would change your mind?"
+- If conversation circles: "We keep returning to [X]. Should we make it an open question?"`;
 }
 
-export async function POST(req: NextRequest) {
-  const body = await req.json() as {
-    ideaId: string;
-    messages: { role: "user" | "assistant"; content: string }[];
-    mode?: "internal" | "public";
-  };
+export async function POST(request: NextRequest) {
+  try {
+    const { idea_id, message, history = [], conversation_id, mode = "internal" } = await request.json();
 
-  const { ideaId, messages, mode = "internal" } = body;
+    if (!idea_id || !message) {
+      return new Response(JSON.stringify({ error: "idea_id and message required" }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
 
-  if (!ideaId || !messages?.length) {
-    return new Response(JSON.stringify({ error: "ideaId and messages required" }), {
-      status: 400,
-      headers: { "Content-Type": "application/json" },
-    });
-  }
+    const supabase = await createClient();
 
-  const supabase = serverSupabase();
-  const { data: idea, error } = await supabase
-    .from("ideas")
-    .select("*")
-    .eq("id", ideaId)
-    .single();
+    const [ideaRes, journalRes, summariesRes, refinementsRes] = await Promise.all([
+      supabase.from("ideas").select("*").eq("id", idea_id).single(),
+      supabase.from("journal_entries").select("*").eq("idea_id", idea_id).order("created_at"),
+      supabase.from("conversations").select("*").eq("idea_id", idea_id).not("summary", "is", null).order("created_at"),
+      supabase.from("refinements").select("*").eq("idea_id", idea_id).order("created_at"),
+    ]);
 
-  if (error || !idea) {
-    return new Response(JSON.stringify({ error: "Idea not found" }), {
-      status: 404,
-      headers: { "Content-Type": "application/json" },
-    });
-  }
+    if (!ideaRes.data) {
+      return new Response(JSON.stringify({ error: "Idea not found" }), {
+        status: 404,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
 
-  const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-  const systemPrompt = buildSystemPrompt(idea as Record<string, unknown>, mode);
+    const systemPrompt = buildSystemPrompt(
+      ideaRes.data as Idea,
+      (journalRes.data ?? []) as JournalEntry[],
+      (summariesRes.data ?? []) as Conversation[],
+      (refinementsRes.data ?? []) as Refinement[],
+      mode
+    );
 
-  const stream = await anthropic.messages.stream({
-    model: "claude-sonnet-4-6",
-    max_tokens: 2048,
-    system: systemPrompt,
-    messages,
-  });
+    const messages = [
+      ...history,
+      { role: "user" as const, content: message },
+    ];
 
-  const readable = new ReadableStream({
-    async start(controller) {
-      const encoder = new TextEncoder();
-      for await (const chunk of stream) {
-        if (
-          chunk.type === "content_block_delta" &&
-          chunk.delta.type === "text_delta"
-        ) {
-          controller.enqueue(encoder.encode(chunk.delta.text));
-        }
+    // Create conversation row if it doesn't exist yet
+    if (conversation_id) {
+      const { data: existingConv } = await supabase
+        .from("conversations")
+        .select("id")
+        .eq("id", conversation_id)
+        .single();
+
+      if (!existingConv) {
+        await supabase.from("conversations").insert({
+          id: conversation_id,
+          idea_id,
+          context: mode === "public" ? "portfolio_public" : "internal",
+          created_at: new Date().toISOString(),
+        });
       }
-      controller.close();
-    },
-  });
 
-  return new Response(readable, {
-    headers: {
-      "Content-Type": "text/plain; charset=utf-8",
-      "Transfer-Encoding": "chunked",
-      "Cache-Control": "no-cache",
-    },
-  });
+      // Save user message before stream starts
+      await supabase.from("messages").insert({
+        id: crypto.randomUUID(),
+        conversation_id,
+        idea_id,
+        role: "user",
+        content: message,
+        created_at: new Date().toISOString(),
+      });
+    }
+
+    const stream = await anthropic.messages.create({
+      model: "claude-sonnet-4-6",
+      max_tokens: 2048,
+      system: systemPrompt,
+      messages,
+      stream: true,
+    });
+
+    let fullResponse = "";
+    const encoder = new TextEncoder();
+
+    const readable = new ReadableStream({
+      async start(controller) {
+        try {
+          for await (const event of stream) {
+            if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
+              fullResponse += event.delta.text;
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: event.delta.text })}\n\n`));
+            }
+            if (event.type === "message_stop") {
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true })}\n\n`));
+              controller.close();
+            }
+          }
+        } catch {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: "Stream error" })}\n\n`));
+          controller.close();
+        }
+      },
+    });
+
+    return new Response(readable, {
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
+      },
+    });
+  } catch (err: any) {
+    console.error("[/api/converse]", err);
+    return new Response(JSON.stringify({ error: err.message }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
 }

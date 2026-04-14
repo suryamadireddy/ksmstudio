@@ -172,7 +172,7 @@ export default function IdeaDetailShell({
           {tab === "journal" && <JournalPanel entries={journal} />}
           {tab === "refinements" && <RefinementsPanel refinements={refinements} />}
           {tab === "conversations" && (
-            <ConversationsPanel conversations={conversations} messages={messages} />
+            <ConversationsPanel conversations={conversations} messages={messages} ideaId={idea.id} />
           )}
         </div>
 

@@ -692,10 +692,15 @@ def stream_stage(
     max_continuations = 5
 
     for _ in range(max_continuations):
+        thinking_config = (
+            {"type": "disabled"}
+            if label in ("Builder Brief",)
+            else {"type": "adaptive"}
+        )
         with client.messages.stream(
             model=MODEL,
             max_tokens=max_tokens,
-            thinking={"type": "adaptive"},
+            thinking=thinking_config,
             system=system,
             messages=messages,
         ) as stream:
