@@ -22,7 +22,7 @@ async function getIdea(id: string): Promise<Idea | null> {
   const supabase = serverSupabase();
   const { data, error } = await supabase
     .from("ideas")
-    .select("*")
+    .select("id, raw_input, domain, state, created_at, triage, development")
     .eq("id", id)
     .single();
   if (error || !data) return null;
@@ -175,7 +175,9 @@ function OverviewTab({ idea }: { idea: Idea }) {
 
           {t.kill_assumptions?.length > 0 && (
             <Section title="Kill Assumptions">
-              <BulletList items={t.kill_assumptions} />
+              <BulletList items={t.kill_assumptions.map((a) =>
+                typeof a === "object" ? a.text : a
+              )} />
             </Section>
           )}
         </>

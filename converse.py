@@ -40,9 +40,10 @@ load_dotenv()
 # Constants
 # ---------------------------------------------------------------------------
 
-MODEL = "claude-sonnet-4-6"
+from config import CONVERSE_MODEL as MODEL
 MAX_TOKENS = 2048
 EXTRACTION_HEADER = "PROPOSED EXTRACTION:"
+TRIAGE_INSIGHT_HEADER = "TRIAGE INSIGHT:"
 SESSION_SUMMARY_HEADER = "SESSION SUMMARY:"
 SUMMARY_REQUEST = (
     "Please produce the SESSION SUMMARY for this conversation now, "
@@ -66,7 +67,11 @@ def get_supabase() -> Client:
 
 def fetch_idea(supabase: Client, idea_id: str) -> dict:
     result = (
-        supabase.table("ideas").select("*").eq("id", idea_id).single().execute()
+        supabase.table("ideas")
+        .select("id, raw_input, domain, state, created_at, triage, development, outcomes")
+        .eq("id", idea_id)
+        .single()
+        .execute()
     )
     if not result.data:
         print(f"ERROR: Idea {idea_id} not found.")
@@ -222,7 +227,9 @@ def build_system_prompt(
     # --- triage block ---
     if triage:
         kill_assumptions = "\n".join(
-            f"- {a}" for a in triage.get("kill_assumptions", [])
+            f"- {a['text']} [{a.get('status', 'untested')}]"
+            if isinstance(a, dict) else f"- {a}"
+            for a in triage.get("kill_assumptions", [])
         )
         triage_block = f"""\
 ### How I was evaluated
@@ -321,6 +328,20 @@ Questions still unresolved about me:
     else:
         summaries_block = ""
 
+    # --- outcomes block ---
+    outcomes = idea.get("outcomes") or {}
+    if outcomes.get("entries"):
+        outcomes_text = "\n".join(
+            f"[{e.get('date', '')[:10]}] [{e.get('type')}] {e.get('title')}: {e.get('description')}"
+            for e in outcomes["entries"]
+        )
+        outcomes_block = f"""\
+### What has actually happened
+Current status: {outcomes.get('current_status', 'unknown')}
+{outcomes_text}"""
+    else:
+        outcomes_block = ""
+
     # Assemble sections, skipping empty ones
     knowledge_sections = "\n\n".join(
         block for block in [
@@ -329,6 +350,7 @@ Questions still unresolved about me:
             refinements_block,
             journal_block,
             summaries_block,
+            outcomes_block,
         ]
         if block.strip()
     )
@@ -398,6 +420,51 @@ Should this become a refinement? <yes|no>
 If yes — Artifact: <which artifact>, Field: <which field>, Change: <what should change and to what>
 
 Always propose. Never auto-write. The creator confirms or discards.
+
+DETECT — You have full awareness of how I was triaged: my scores,
+my kill assumptions, who benefits, and effort estimates. If anything
+the creator says during this conversation materially changes the
+triage picture, you MUST surface it immediately. Do not wait for
+the end of the conversation. Do not bury it in your answer.
+
+When you detect a triage-relevant moment, pause your normal response
+flow and say something like: "Wait — what you just said changes
+things. Let me explain why." Then produce:
+
+TRIAGE INSIGHT:
+What changed: <1-2 sentences>
+Which dimensions are affected: <effort|impact|confidence|kill_assumption|who_benefits>
+Previous understanding: <what the triage currently assumes>
+New signal: <what the conversation just revealed>
+Recommended action: <retriage|update_assumption|note_only>
+If update_assumption — Assumption: <the kill assumption text>, Status: <validated|invalidated|weakened|strengthened>
+
+What triggers an insight:
+- A kill assumption gets validated or invalidated by something the
+  creator said (direct evidence, not speculation)
+- The creator reveals information that significantly shifts effort
+  estimates (e.g. "I found an API that does the hard part" or
+  "turns out we need regulatory approval")
+- The target user or beneficiary changes meaningfully
+- New evidence about market size, willingness to pay, or competitive
+  landscape that was not available at triage time
+- The creator articulates something that contradicts their own
+  triage reasoning
+
+What does NOT trigger an insight:
+- Vague optimism ("I think this could be huge")
+- Restating information already captured in triage
+- Minor refinements to features or scope that don't change the
+  fundamental evaluation
+- The creator's feelings about the idea
+
+Be selective. An insight every other message is noise. An insight
+once in a productive 20-minute session is about right. When you
+do surface one, make it count — be specific about what changed
+and why it matters.
+
+After surfacing the insight, continue the conversation normally.
+Do not dwell on the insight unless the creator wants to discuss it.
 
 ### In PUBLIC mode
 
@@ -509,6 +576,115 @@ def parse_extraction(text: str) -> Optional[dict]:
 
     return fields
 
+
+def parse_triage_insight(text: str) -> Optional[dict]:
+    """Parse TRIAGE INSIGHT block from response. Returns dict or None."""
+    idx = text.find(TRIAGE_INSIGHT_HEADER)
+    if idx == -1:
+        return None
+
+    lines = text[idx:].splitlines()
+    fields: dict = {
+        "what_changed": None,
+        "dimensions_affected": None,
+        "previous_understanding": None,
+        "new_signal": None,
+        "recommended_action": None,
+        "assumption_text": None,
+        "assumption_status": None,
+    }
+
+    for line in lines:
+        stripped = line.strip()
+        low = stripped.lower()
+
+        if low.startswith("what changed:"):
+            fields["what_changed"] = stripped.split(":", 1)[-1].strip()
+        elif low.startswith("which dimensions are affected:"):
+            fields["dimensions_affected"] = stripped.split(":", 1)[-1].strip()
+        elif low.startswith("previous understanding:"):
+            fields["previous_understanding"] = stripped.split(":", 1)[-1].strip()
+        elif low.startswith("new signal:"):
+            fields["new_signal"] = stripped.split(":", 1)[-1].strip()
+        elif low.startswith("recommended action:"):
+            fields["recommended_action"] = stripped.split(":", 1)[-1].strip()
+        elif low.startswith("if update_assumption"):
+            rest = stripped
+            assumption_m = re.search(r"assumption:\s*([^,]+)", rest, re.IGNORECASE)
+            status_m = re.search(r"status:\s*(\w+)", rest, re.IGNORECASE)
+            if assumption_m:
+                fields["assumption_text"] = assumption_m.group(1).strip()
+            if status_m:
+                fields["assumption_status"] = status_m.group(1).strip().lower()
+
+    if not fields["what_changed"]:
+        return None
+
+    return fields
+
+
+# ---------------------------------------------------------------------------
+# Insight helpers
+# ---------------------------------------------------------------------------
+
+def _update_kill_assumption_status(
+    supabase: Client,
+    idea_id: str,
+    assumption_text: str,
+    status: str,
+) -> None:
+    """Update the status of a specific kill assumption in triage JSONB."""
+    result = (
+        supabase.table("ideas")
+        .select("triage")
+        .eq("id", idea_id)
+        .single()
+        .execute()
+    )
+    triage = result.data.get("triage") or {}
+    assumptions = triage.get("kill_assumptions", [])
+
+    updated = False
+    for a in assumptions:
+        if isinstance(a, dict) and (
+            assumption_text.lower() in a["text"].lower()
+            or a["text"].lower() in assumption_text.lower()
+        ):
+            a["status"] = status
+            a["status_updated_at"] = datetime.now(timezone.utc).isoformat()
+            a["status_source"] = "conversation"
+            updated = True
+            break
+
+    if updated:
+        triage["kill_assumptions"] = assumptions
+        supabase.table("ideas").update({"triage": triage}).eq("id", idea_id).execute()
+
+
+def _flag_for_retriage(
+    supabase: Client,
+    idea_id: str,
+    reason: str,
+) -> None:
+    """Set retriage_pending column and append reason to retriage_reasons column."""
+    now = datetime.now(timezone.utc).isoformat()
+    result = (
+        supabase.table("ideas")
+        .select("retriage_reasons")
+        .eq("id", idea_id)
+        .single()
+        .execute()
+    )
+    current_reasons = result.data.get("retriage_reasons") or []
+    current_reasons.append({
+        "reason": reason,
+        "flagged_at": now,
+        "source": "conversation",
+    })
+    supabase.table("ideas").update({
+        "retriage_pending": True,
+        "retriage_reasons": current_reasons,
+    }).eq("id", idea_id).execute()
 
 
 # ---------------------------------------------------------------------------
@@ -697,6 +873,74 @@ def run_conversation(
                         print()
                     else:
                         print("Discarded.\n")
+
+            # Check for triage insight (internal mode only)
+            if mode == "internal" and TRIAGE_INSIGHT_HEADER in response_text:
+                insight = parse_triage_insight(response_text)
+                if insight:
+                    print(f"\n{'━'*50}")
+                    print(f"  ⚡ TRIAGE INSIGHT DETECTED")
+                    print(f"  What changed: {insight['what_changed']}")
+                    print(f"  Affects: {insight['dimensions_affected']}")
+                    print(f"  Was: {insight['previous_understanding']}")
+                    print(f"  Now: {insight['new_signal']}")
+                    print(f"  Recommended: {insight['recommended_action']}")
+                    if insight.get("assumption_text"):
+                        print(f"  Assumption: {insight['assumption_text']}")
+                        print(f"  Status: {insight['assumption_status']}")
+                    print(f"{'━'*50}")
+
+                    print("Save this insight? [Y/n]: ", end="", flush=True)
+                    try:
+                        answer = input().strip().lower()
+                    except (EOFError, KeyboardInterrupt):
+                        answer = "n"
+
+                    if answer != "n":
+                        insight_content = (
+                            f"TRIAGE INSIGHT: {insight['what_changed']}\n"
+                            f"Dimensions affected: {insight['dimensions_affected']}\n"
+                            f"Previous: {insight['previous_understanding']}\n"
+                            f"New signal: {insight['new_signal']}"
+                        )
+                        entry_id = write_journal_entry(
+                            supabase,
+                            idea_id,
+                            "triage_insight",
+                            insight_content,
+                        )
+                        print(f"  ✓ Insight saved to journal ({entry_id[:8]}...)")
+
+                        if (
+                            insight.get("assumption_status")
+                            and insight.get("assumption_text")
+                            and insight["assumption_status"] in (
+                                "validated", "invalidated",
+                                "weakened", "strengthened"
+                            )
+                        ):
+                            _update_kill_assumption_status(
+                                supabase,
+                                idea_id,
+                                insight["assumption_text"],
+                                insight["assumption_status"],
+                            )
+                            print(
+                                f"  ✓ Kill assumption marked as "
+                                f"{insight['assumption_status']}"
+                            )
+
+                        if insight["recommended_action"] == "retriage":
+                            _flag_for_retriage(
+                                supabase,
+                                idea_id,
+                                reason=insight["what_changed"],
+                            )
+                            print("  ✓ Idea flagged for re-triage")
+
+                        print()
+                    else:
+                        print("  Discarded.\n")
 
             # Save assistant message to Supabase
             save_message(

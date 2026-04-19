@@ -31,7 +31,7 @@ from datetime import datetime, timezone
 
 import anthropic
 
-from config import ANTHROPIC_API_KEY, MODEL
+from config import ANTHROPIC_API_KEY, PIPELINE_MODEL as MODEL
 from db import get_client
 
 # ── System prompt ─────────────────────────────────────────────────────────────

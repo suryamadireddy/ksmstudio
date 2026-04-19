@@ -27,6 +27,14 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
+      <head>
+        {/* Runs before hydration — sets data-theme on <html> to avoid flash on public pages */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var o=localStorage.getItem('ksm-theme-override');if(o==='light'||o==='dark'){document.documentElement.dataset.theme=o;}else{var h=new Date().getHours();document.documentElement.dataset.theme=(h>=6&&h<18)?'light':'dark';}}catch(e){}})();`,
+          }}
+        />
+      </head>
       <body className="min-h-full flex flex-col">{children}</body>
     </html>
   );

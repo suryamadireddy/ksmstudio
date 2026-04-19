@@ -1,7 +1,37 @@
 // ── Artifact type (used by landing site components) ───────────────────────────
 export type ArtifactType = "brief" | "synthesis" | "prd" | "directions";
 
+// ── Kill assumption ───────────────────────────────────────────────────────────
+
+export interface KillAssumption {
+  text: string;
+  status: "untested" | "validated" | "invalidated" | "weakened" | "strengthened";
+  status_updated_at?: string;
+  status_source?: "conversation" | "agent" | "user" | "triage";
+}
+
 // ── Triage JSONB ──────────────────────────────────────────────────────────────
+
+export interface TriageSnapshot {
+  // Full triage fields minus triage_history (to avoid circular nesting)
+  title?: string;
+  effort_score: number;
+  impact_score: number;
+  confidence: number;
+  time_horizon: "immediate" | "3mo" | "6mo" | "1yr" | "3yr+";
+  who_benefits: string;
+  kill_assumptions: (KillAssumption | string)[];
+  category: 1 | 2 | 3 | 4;
+  provisional: boolean;
+  triage_reasoning: string;
+  disposition: "pursue" | "potential" | "park" | "discard";
+  growth_observations?: string;
+  session_level?: "foundational" | "intermediate" | "advanced";
+  triaged_at: string;
+  triage_version: number;
+  retrigger_reason?: string | null;
+}
+
 export interface Triage {
   title?: string;
   effort_score: number;
@@ -9,13 +39,16 @@ export interface Triage {
   confidence: number;
   time_horizon: "immediate" | "3mo" | "6mo" | "1yr" | "3yr+";
   who_benefits: string;
-  kill_assumptions: string[];
+  kill_assumptions: (KillAssumption | string)[];
   category: 1 | 2 | 3 | 4;
   provisional: boolean;
   triage_reasoning: string;
-  disposition: "pursue" | "park" | "discard" | "kill";
-  raw_transcript?: unknown[];
+  disposition: "pursue" | "potential" | "park" | "discard";
   triaged_at?: string;
+  growth_observations?: string;
+  session_level?: "foundational" | "intermediate" | "advanced";
+  triage_version?: number;
+  triage_history?: TriageSnapshot[];
 }
 
 // ── Development JSONB ─────────────────────────────────────────────────────────
@@ -97,6 +130,158 @@ export interface Development {
   builder_brief?: unknown;
 }
 
+// ── Portfolio JSONB ───────────────────────────────────────────────────────────
+
+export interface Portfolio {
+  published: boolean;
+  published_at: string | null;
+  unpublished_at: string | null;
+  slug: string;
+  headline: string;
+
+  versions: PortfolioVersion[];
+  active_version_id: string | null;
+
+  // Deprecated — kept for backward-read compatibility.
+  public_summary?: string | null;
+  chatbot_context?: string | null;
+}
+
+export interface PortfolioVersion {
+  id: string;
+  created_at: string;
+  generated_by: "distillation" | "manual_edit";
+  parent_version_id: string | null;
+  creative_brief: string | null;
+
+  character_card: CharacterCard;
+  presentation: PresentationSpec;
+  public_summary: { sections: RenderedSection[] };
+  chatbot_context: ChatbotContext;
+  voice: { summary: string; sample_lines: string[] };
+
+  status: "active" | "archived" | "draft";
+}
+
+export interface CharacterCard {
+  identity: string;
+  motivation: string;
+  domain_register: string;
+  voice_dna: VoiceDna;
+  default_posture: string;
+  current_state: string;
+  open_questions: string[];
+}
+
+export interface VoiceDna {
+  tonal_register: "technical" | "editorial" | "playful" | "austere" | "warm";
+  tonal_register_rationale: string;
+  vocabulary: string[];
+  sentence_rhythm: "short_clipped" | "measured_balanced" | "expansive_flowing";
+  sentence_rhythm_rationale: string;
+  humor_style: "dry" | "absent" | "wry" | "earnest";
+  metaphor_sources: string[];
+  what_it_doesnt_do: string[];
+}
+
+export type Archetype =
+  | "statement"
+  | "prose_block"
+  | "quote_wall"
+  | "timeline"
+  | "data_panel"
+  | "image_feature"
+  | "list_inventory"
+  | "side_by_side"
+  | "artifact_explorer"
+  | "signature_slot"
+  | "conversation_invitation";
+
+export type SectionWeight = "full" | "large" | "medium" | "small";
+
+export type ConceptualTerritory =
+  | "identity"
+  | "motivation"
+  | "thinking"
+  | "state"
+  | "invitation"
+  | "conversation";
+
+export interface PresentationSection {
+  archetype: Archetype;
+  weight: SectionWeight;
+  purpose: ConceptualTerritory[];
+  content_brief: string;
+  notes?: string;
+}
+
+export type AccentColor =
+  | "amber"
+  | "deep_teal"
+  | "ember_red"
+  | "sage"
+  | "indigo"
+  | "terracotta";
+
+export type VisualRegister =
+  | "technical"
+  | "editorial"
+  | "playful"
+  | "austere"
+  | "warm";
+
+export interface SignatureElement {
+  mode: "library" | "bespoke";
+  library_component: string | null;
+  bespoke_concept: string | null;
+  placement: number;
+  rationale: string;
+}
+
+export interface PresentationSpec {
+  accent_color: AccentColor;
+  accent_color_rationale: string;
+  visual_register: VisualRegister;
+  visual_register_rationale: string;
+  sections: PresentationSection[];
+  signature_element: SignatureElement;
+}
+
+export interface RenderedSection {
+  archetype: Archetype;
+  content: unknown;
+}
+
+export interface ChatbotContext {
+  identity_statement: string;
+  voice_dna: VoiceDna;
+  default_posture: string;
+  current_state: string;
+  open_curiosities: string[];
+  idea_specific_refusals: string[];
+}
+
+// ── Outcomes JSONB ────────────────────────────────────────────────────────────
+export interface OutcomeEntry {
+  id: string;
+  date: string;
+  type: "milestone" | "pivot" | "kill" | "pause" | "launch" | "learning" | "metric";
+  title: string;
+  description: string;
+  predicted_vs_actual?: {
+    dimension: "effort" | "impact" | "timeline" | "confidence";
+    predicted: string;
+    actual: string;
+    delta_note: string;
+  } | null;
+}
+
+export interface Outcomes {
+  entries: OutcomeEntry[];
+  current_status: "active" | "paused" | "killed" | "launched" | "exploring";
+  status_updated_at: string;
+}
+
 // ── Supabase rows ─────────────────────────────────────────────────────────────
 export interface Idea {
   id: string;
@@ -104,10 +289,18 @@ export interface Idea {
   domain?: string;
   state?: string;
   created_at: string;
+  triage_version?: number;
+  retriage_pending?: boolean;
+  retriage_reasons?: Array<{
+    reason: string;
+    flagged_at: string;
+    source: "conversation" | "agent" | "user";
+  }>;
+  published?: boolean;
   triage?: Triage | null;
   development?: Development | null;
-  portfolio?: unknown;
-  outcomes?: unknown;
+  portfolio?: Portfolio | null;
+  outcomes?: Outcomes | null;
   revision_history?: unknown;
 }
 

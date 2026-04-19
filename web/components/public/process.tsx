@@ -28,30 +28,31 @@ const processSteps = [
 
 export function Process() {
     return (
-        <section id="process" className="bg-secondary/50 px-6 py-24 md:py-32">
+        <section id="process" className="px-6 py-24 md:py-32" style={{ backgroundColor: "var(--surface)" }}>
             <div className="mx-auto max-w-6xl">
                 <div className="mb-16">
-                    <p className="mb-3 text-xs font-medium uppercase tracking-[0.2em] text-muted-foreground">
+                    <p className="mb-3 text-xs font-medium uppercase tracking-[0.2em] text-[var(--muted)]">
                         How We Work
                     </p>
-                    <h2 className="max-w-2xl font-serif text-3xl font-normal tracking-tight text-foreground md:text-4xl">
+                    <h2 className="max-w-2xl font-serif text-3xl font-normal tracking-tight text-[var(--fg)] md:text-4xl">
                         A structured approach to product thinking
                     </h2>
                 </div>
 
-                <div className="grid gap-px overflow-hidden rounded-lg border border-border bg-border md:grid-cols-5">
+                <div className="grid gap-px overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--border)] md:grid-cols-5">
                     {processSteps.map((step) => (
                         <div
                             key={step.number}
-                            className="flex flex-col bg-card p-6 transition-colors hover:bg-secondary/80"
+                            className="flex flex-col p-6 transition-colors"
+                            style={{ backgroundColor: "var(--surface)" }}
                         >
-                            <span className="mb-4 text-xs font-medium text-accent">
+                            <span className="mb-4 text-xs font-medium text-[var(--accent)]">
                                 {step.number}
                             </span>
-                            <h3 className="mb-2 font-serif text-lg font-normal tracking-tight text-foreground">
+                            <h3 className="mb-2 font-serif text-lg font-normal tracking-tight text-[var(--fg)]">
                                 {step.title}
                             </h3>
-                            <p className="text-sm leading-relaxed text-muted-foreground">
+                            <p className="text-sm leading-relaxed text-[var(--muted)]">
                                 {step.description}
                             </p>
                         </div>

@@ -2,11 +2,31 @@
 
 import { createClient } from "@/lib/supabase/client";
 import { useSearchParams } from "next/navigation";
-import { Suspense } from "react";
+import { Suspense, useEffect, useState } from "react";
+
+function LoginFormSkeleton() {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-[#0f0e0c]">
+      <div className="w-full max-w-sm px-6">
+        <div className="mb-10">
+          <div className="mb-2 h-3 w-20 rounded bg-[#1a1916]" />
+          <div className="h-9 w-32 rounded bg-[#1a1916]" />
+        </div>
+        <div className="h-11 w-full rounded border border-[#2a2926] bg-[#1a1916]" />
+      </div>
+    </div>
+  );
+}
 
 function LoginForm() {
   const searchParams = useSearchParams();
-  const error = searchParams.get("error");
+  const [mounted, setMounted] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setMounted(true);
+    setError(searchParams.get("error"));
+  }, [searchParams]);
 
   async function signInWithGitHub() {
     const supabase = createClient();
@@ -33,7 +53,7 @@ function LoginForm() {
           </h1>
         </div>
 
-        {error && (
+        {mounted && error && (
           <div className="mb-6 rounded border border-red-900/40 bg-red-950/30 px-4 py-3 text-sm text-red-400">
             Authentication failed. Please try again.
           </div>
@@ -64,7 +84,7 @@ function LoginForm() {
 
 export default function LoginPage() {
   return (
-    <Suspense>
+    <Suspense fallback={<LoginFormSkeleton />}>
       <LoginForm />
     </Suspense>
   );

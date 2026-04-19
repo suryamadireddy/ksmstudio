@@ -1,7 +1,278 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
+import Link from "next/link";
 import type { Conversation, Message } from "@/lib/types";
+
+// ── Triage insight types + card ───────────────────────────────────────────────
+
+interface TriageInsight {
+  whatChanged: string;
+  dimensionsAffected: string;
+  previousUnderstanding: string | null;
+  newSignal: string | null;
+  recommendedAction: "retriage" | "update_assumption" | "note_only";
+  assumptionText: string | null;
+  assumptionStatus: string | null;
+}
+
+function TriageInsightCard({
+  insight,
+  ideaId,
+}: {
+  insight: TriageInsight;
+  ideaId: string;
+}) {
+  const [dismissed, setDismissed] = useState(false);
+  if (dismissed) return null;
+
+  return (
+    <div
+      className="mt-2 max-w-[85%] rounded border p-3"
+      style={{
+        borderColor: "rgba(var(--studio-amber-rgb, 180,120,40), 0.5)",
+        backgroundColor: "rgba(var(--studio-amber-rgb, 180,120,40), 0.06)",
+      }}
+    >
+      <p
+        className="mb-2 text-[10px] font-semibold uppercase tracking-widest"
+        style={{ color: "var(--studio-amber)" }}
+      >
+        ⚡ triage insight
+      </p>
+
+      <p className="mb-1 text-[11px] font-medium" style={{ color: "var(--studio-fg)" }}>
+        {insight.whatChanged}
+      </p>
+
+      <div className="mb-2 space-y-0.5 text-[11px]" style={{ color: "var(--studio-fg-muted)" }}>
+        {insight.dimensionsAffected && (
+          <p>Affects: <span style={{ color: "var(--studio-amber-dim)" }}>{insight.dimensionsAffected}</span></p>
+        )}
+        {insight.previousUnderstanding && <p>Was: {insight.previousUnderstanding}</p>}
+        {insight.newSignal && <p>Now: {insight.newSignal}</p>}
+        {insight.assumptionText && (
+          <p>
+            Assumption: {insight.assumptionText}
+            {insight.assumptionStatus && (
+              <span
+                className="ml-1 font-semibold"
+                style={{
+                  color: insight.assumptionStatus === "invalidated" ? "#f87171"
+                    : insight.assumptionStatus === "weakened" ? "#f0b429"
+                    : "#4ade80",
+                }}
+              >
+                → {insight.assumptionStatus}
+              </span>
+            )}
+          </p>
+        )}
+      </div>
+
+      <div className="flex gap-2">
+        {insight.recommendedAction === "retriage" && (
+          <Link
+            href={`/studio/ideas/${ideaId}/retriage`}
+            className="rounded px-2.5 py-1 text-[11px] font-medium transition-colors"
+            style={{ backgroundColor: "var(--studio-amber)", color: "var(--studio-bg)" }}
+          >
+            Re-triage now →
+          </Link>
+        )}
+        <button
+          onClick={() => setDismissed(true)}
+          className="rounded px-2.5 py-1 text-[11px] transition-colors"
+          style={{ color: "var(--studio-fg-muted)" }}
+        >
+          Dismiss
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Extraction helpers ────────────────────────────────────────────────────────
+
+interface ParsedExtraction {
+  type: string;
+  content: string;
+  isRefinement: boolean;
+  artifact: string | null;
+  field: string | null;
+  change: string | null;
+}
+
+function parseExtraction(raw: string): ParsedExtraction {
+  const line = (key: string) => {
+    const m = raw.match(new RegExp(`^${key}:\\s*(.+)`, "im"));
+    return m ? m[1].trim() : null;
+  };
+  const refinementAnswer = line("Should this become a refinement");
+  return {
+    type: line("Type") ?? "observation",
+    content: line("Content") ?? raw.trim(),
+    isRefinement: /yes/i.test(refinementAnswer ?? ""),
+    artifact: line("Artifact"),
+    field: line("Field"),
+    change: line("Change"),
+  };
+}
+
+// ── ExtractionBlock component ─────────────────────────────────────────────────
+
+type BlockState = "default" | "saved" | "dismissed";
+
+function ExtractionBlock({
+  extraction,
+  ideaId,
+}: {
+  extraction: string;
+  ideaId: string;
+  messageIndex: number;
+}) {
+  const parsed = parseExtraction(extraction);
+  const [state, setState] = useState<BlockState>("default");
+  const [saving, setSaving] = useState(false);
+  const [savedAsRefinement, setSavedAsRefinement] = useState(false);
+
+  // Editable refinement fields (pre-filled from parsed)
+  const [artifact, setArtifact] = useState(parsed.artifact ?? "");
+  const [fieldPath, setFieldPath] = useState(parsed.field ?? "");
+  const [change, setChange] = useState(parsed.change ?? "");
+
+  if (state === "dismissed") return null;
+
+  async function handleSave() {
+    setSaving(true);
+    try {
+      const isRef = parsed.isRefinement && artifact && fieldPath && change;
+      const res = await fetch("/api/journal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          idea_id: ideaId,
+          type: parsed.type,
+          content: parsed.content,
+          is_refinement: !!isRef,
+          artifact: isRef ? artifact : null,
+          field_path: isRef ? fieldPath : null,
+          change: isRef ? change : null,
+        }),
+      });
+      const data = await res.json() as { ok?: boolean; refinement_id?: string };
+      if (data.ok) {
+        setSavedAsRefinement(!!data.refinement_id);
+        setState("saved");
+      }
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // ── Saved state ──────────────────────────────────────────────────────────────
+  if (state === "saved") {
+    return (
+      <div
+        className="mt-1 max-w-[85%] flex items-center gap-2 rounded border px-3 py-2"
+        style={{
+          borderColor: "var(--studio-border)",
+          backgroundColor: "var(--studio-bg-2)",
+        }}
+      >
+        <span style={{ color: "var(--studio-amber-dim)" }}>✓</span>
+        <span className="text-[11px]" style={{ color: "var(--studio-fg-muted)" }}>
+          {savedAsRefinement ? "Saved to journal + refinement" : "Saved to journal"}
+        </span>
+      </div>
+    );
+  }
+
+  // ── Default state ─────────────────────────────────────────────────────────────
+  return (
+    <div
+      className="mt-1 max-w-[85%] rounded border p-3"
+      style={{
+        borderColor: "var(--studio-amber-dim)",
+        backgroundColor: "var(--studio-bg-2)",
+      }}
+    >
+      <p
+        className="mb-2 text-[10px] font-semibold uppercase tracking-widest"
+        style={{ color: "var(--studio-amber-dim)" }}
+      >
+        proposed extraction · {parsed.type}
+      </p>
+
+      <p
+        className="mb-3 text-[11px] leading-relaxed"
+        style={{ color: "var(--studio-fg-muted)" }}
+      >
+        {parsed.content}
+      </p>
+
+      {/* Editable refinement fields — shown only when Claude flagged it */}
+      {parsed.isRefinement && (
+        <div
+          className="mb-3 space-y-1.5 rounded border p-2"
+          style={{ borderColor: "var(--studio-border)" }}
+        >
+          <p
+            className="mb-1 text-[10px] font-semibold uppercase tracking-widest"
+            style={{ color: "var(--studio-amber-dim)" }}
+          >
+            refinement target
+          </p>
+          {[
+            { label: "Artifact", value: artifact, set: setArtifact },
+            { label: "Field", value: fieldPath, set: setFieldPath },
+            { label: "Change", value: change, set: setChange },
+          ].map(({ label, value, set }) => (
+            <div key={label} className="flex items-center gap-2">
+              <span
+                className="w-12 shrink-0 text-[10px]"
+                style={{ color: "var(--studio-fg-muted)", opacity: 0.6 }}
+              >
+                {label}
+              </span>
+              <input
+                type="text"
+                value={value}
+                onChange={(e) => set(e.target.value)}
+                className="flex-1 rounded border bg-transparent px-2 py-0.5 text-[11px] outline-none"
+                style={{
+                  borderColor: "var(--studio-border)",
+                  color: "var(--studio-fg)",
+                }}
+              />
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="flex gap-2">
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          className="rounded px-2.5 py-1 text-[11px] font-medium transition-colors disabled:opacity-40"
+          style={{
+            backgroundColor: "var(--studio-amber)",
+            color: "var(--studio-bg)",
+          }}
+        >
+          {saving ? "Saving…" : "Save to journal"}
+        </button>
+        <button
+          onClick={() => setState("dismissed")}
+          className="rounded px-2.5 py-1 text-[11px] transition-colors"
+          style={{ color: "var(--studio-fg-muted)" }}
+        >
+          Dismiss
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function relativeTime(iso: string) {
   const diff = Date.now() - new Date(iso).getTime();
@@ -16,6 +287,7 @@ interface LiveMessage {
   role: "user" | "idea";
   content: string;
   streaming?: boolean;
+  insight?: TriageInsight;
 }
 
 // ─── Past session viewer ──────────────────────────────────────────────────────
@@ -168,6 +440,7 @@ export default function ConversationsPanel({
   useEffect(() => {
     const messagesByConv: Record<string, Message[]> = {};
     for (const m of messages) {
+      if (!m.conversation_id) continue;
       if (!messagesByConv[m.conversation_id]) messagesByConv[m.conversation_id] = [];
       messagesByConv[m.conversation_id].push(m);
     }
@@ -252,11 +525,22 @@ export default function ConversationsPanel({
                 return updated;
               });
             }
+            if (parsed.triage_insight) {
+              const insightData = parsed.triage_insight as TriageInsight;
+              setLiveMessages((prev) => {
+                const updated = [...prev];
+                const lastIdeaIdx = updated.map((m, i) => m.role === "idea" ? i : -1).filter((i) => i >= 0).pop();
+                if (lastIdeaIdx !== undefined) {
+                  updated[lastIdeaIdx] = { ...updated[lastIdeaIdx], insight: insightData };
+                }
+                return updated;
+              });
+            }
             if (parsed.done) {
               setLiveMessages((prev) => {
                 const updated = [...prev];
                 updated[updated.length - 1] = {
-                  role: "idea",
+                  ...updated[updated.length - 1],
                   content: accumulated,
                   streaming: false,
                 };
@@ -473,31 +757,15 @@ export default function ConversationsPanel({
                             </p>
                           </div>
                         </div>
-                        {extraction && (
-                          <div
-                            className="mt-1 max-w-[85%] rounded border p-3"
-                            style={{
-                              borderColor: "var(--studio-amber-dim)",
-                              backgroundColor: "var(--studio-bg-2)",
-                              opacity: 0.85,
-                            }}
-                          >
-                            <p
-                              className="mb-1 text-[10px] font-semibold uppercase tracking-widest"
-                              style={{ color: "var(--studio-amber-dim)" }}
-                            >
-                              proposed extraction
-                            </p>
-                            <pre
-                              className="text-[11px] leading-relaxed whitespace-pre-wrap"
-                              style={{
-                                color: "var(--studio-fg-muted)",
-                                fontFamily: "var(--font-mono, monospace)",
-                              }}
-                            >
-                              {extraction.trim()}
-                            </pre>
-                          </div>
+                        {extraction && !msg.streaming && (
+                          <ExtractionBlock
+                            extraction={extraction.trim()}
+                            ideaId={ideaId}
+                            messageIndex={i}
+                          />
+                        )}
+                        {msg.insight && !msg.streaming && (
+                          <TriageInsightCard insight={msg.insight} ideaId={ideaId} />
                         )}
                       </div>
                     );

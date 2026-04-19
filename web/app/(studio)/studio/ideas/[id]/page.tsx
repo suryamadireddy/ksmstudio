@@ -10,7 +10,7 @@ async function fetchAll(id: string) {
 
   const [ideaRes, journalRes, refinementsRes, convsRes, msgsRes] =
     await Promise.all([
-      supabase.from("ideas").select("*").eq("id", id).single(),
+      supabase.from("ideas").select("id, raw_input, domain, state, created_at, triage_version, retriage_pending, retriage_reasons, published, triage, development, portfolio, outcomes").eq("id", id).single(),
       supabase
         .from("journal_entries")
         .select("*")
