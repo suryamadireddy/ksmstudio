@@ -5,6 +5,10 @@ export interface ImageFeatureContent {
 }
 
 export function ImageFeature({ caption, image_brief, image_url }: ImageFeatureContent) {
+  if (typeof caption !== "string" || typeof image_brief !== "string") {
+    return null;
+  }
+
   return (
     <section className="py-16 md:py-32">
       <div className="mx-auto max-w-6xl px-8 md:px-10">

@@ -18,7 +18,7 @@ import RefinementsPanel from "./RefinementsPanel";
 import ConversationsPanel from "./ConversationsPanel";
 import OutcomesPanel from "./OutcomesPanel";
 import PublishToggle from "./PublishToggle";
-import { PortfolioTab } from "./PortfolioTab";
+import { WorkspaceTab } from "./WorkspaceTab";
 
 type Tab =
   | "overview"
@@ -27,7 +27,7 @@ type Tab =
   | "refinements"
   | "conversations"
   | "outcomes"
-  | "portfolio";
+  | "workspace";
 
 const TABS: { id: Tab; label: string; requiresDev?: boolean }[] = [
   { id: "overview", label: "Overview" },
@@ -36,7 +36,7 @@ const TABS: { id: Tab; label: string; requiresDev?: boolean }[] = [
   { id: "journal", label: "Journal" },
   { id: "refinements", label: "Refinements" },
   { id: "conversations", label: "Conversations" },
-  { id: "portfolio", label: "Portfolio", requiresDev: true },
+  { id: "workspace", label: "Workspace", requiresDev: true },
 ];
 
 function Prose({ children }: { children: React.ReactNode }) {
@@ -611,7 +611,9 @@ export default function IdeaDetailShell({
   activeTab: string;
 }) {
   const name = ideaDisplayName(idea);
-  const tab = (TABS.find((t) => t.id === activeTab)?.id ?? "overview") as Tab;
+  const normalizedTab =
+    activeTab === "portfolio" ? "workspace" : activeTab;
+  const tab = (TABS.find((t) => t.id === normalizedTab)?.id ?? "overview") as Tab;
   const baseHref = `/studio/ideas/${idea.id}`;
 
   return (
@@ -639,9 +641,9 @@ export default function IdeaDetailShell({
         <PublishToggle idea={idea} />
       </div>
 
-      <div className="grid gap-8 lg:grid-cols-[1fr_260px]">
+      <div className="grid min-h-0 gap-8 lg:grid-cols-[1fr_260px]">
         {/* Left: tabs + content */}
-        <div>
+        <div className={tab === "workspace" ? "flex min-h-0 min-w-0 flex-col" : ""}>
           {/* Pipeline banner + re-triage button (overview tab only) */}
           {tab === "overview" && (
             <>
@@ -702,7 +704,7 @@ export default function IdeaDetailShell({
             />
           )}
           {tab === "outcomes" && <OutcomesPanel idea={idea} />}
-          {tab === "portfolio" && <PortfolioTab idea={idea} />}
+          {tab === "workspace" && <WorkspaceTab idea={idea} />}
         </div>
 
         {/* Right: sidebar */}

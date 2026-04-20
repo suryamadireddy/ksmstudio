@@ -4,6 +4,10 @@ export interface QuoteWallContent {
 }
 
 export function QuoteWall({ quote, attribution }: QuoteWallContent) {
+  if (typeof quote !== "string") {
+    return null;
+  }
+
   return (
     <section className="py-20 md:py-40">
       <div className="mx-auto max-w-6xl px-8 md:px-10">

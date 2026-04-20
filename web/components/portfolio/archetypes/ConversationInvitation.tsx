@@ -9,6 +9,15 @@ export function ConversationInvitation({
   intro,
   prompt_suggestions,
 }: ConversationInvitationContent) {
+  if (
+    typeof intro !== "string" ||
+    !prompt_suggestions ||
+    !Array.isArray(prompt_suggestions) ||
+    prompt_suggestions.some((s) => typeof s !== "string")
+  ) {
+    return null;
+  }
+
   return (
     <section className="py-20 md:py-32">
       <div className="mx-auto max-w-6xl px-8 md:px-10">

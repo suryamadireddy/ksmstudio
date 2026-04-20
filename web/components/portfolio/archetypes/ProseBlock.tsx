@@ -3,6 +3,10 @@ export interface ProseBlockContent {
 }
 
 export function ProseBlock({ paragraphs }: ProseBlockContent) {
+  if (!paragraphs || !Array.isArray(paragraphs)) {
+    return null;
+  }
+
   return (
     <section className="py-16 md:py-24">
       <div className="mx-auto max-w-6xl px-8 md:px-10">

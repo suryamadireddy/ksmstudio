@@ -8,6 +8,14 @@ export interface ListInventoryContent {
 }
 
 export function ListInventory({ items }: ListInventoryContent) {
+  if (
+    !items ||
+    !Array.isArray(items) ||
+    items.some((it) => !it || typeof it.label !== "string" || typeof it.body !== "string")
+  ) {
+    return null;
+  }
+
   return (
     <section className="py-16 md:py-24">
       <div className="mx-auto max-w-6xl px-8 md:px-10">

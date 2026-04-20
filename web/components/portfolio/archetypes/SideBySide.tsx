@@ -9,6 +9,17 @@ export interface SideBySideContent {
 }
 
 export function SideBySide({ left, right }: SideBySideContent) {
+  if (
+    !left ||
+    !right ||
+    typeof left.label !== "string" ||
+    typeof left.body !== "string" ||
+    typeof right.label !== "string" ||
+    typeof right.body !== "string"
+  ) {
+    return null;
+  }
+
   return (
     <section className="py-16 md:py-24">
       <div className="mx-auto max-w-6xl px-8 md:px-10">

@@ -1,30 +1,58 @@
-import type { PortfolioVersion } from "@/lib/types";
-import { ARCHETYPE_REGISTRY } from "./archetypes";
+import type { LayoutTemplate, PortfolioVersion, SignaturePlacement } from "@/lib/types";
+import { EditLayer } from "./EditLayer";
+import { CleanTemplate, TEMPLATE_REGISTRY } from "./templates";
 
-export function PortfolioRender({ version }: { version: PortfolioVersion }) {
-  const { presentation, public_summary } = version;
+export function PortfolioRender({
+  version,
+  editMode,
+  onSignatureMove,
+  onSignaturePlacementDraft,
+  onPlacementCancel,
+  placementMode,
+  signaturePlacementOverride,
+}: {
+  version: PortfolioVersion;
+  editMode?: boolean;
+  onSignatureMove?: (placement: SignaturePlacement) => void;
+  onSignaturePlacementDraft?: (placement: SignaturePlacement) => void;
+  onPlacementCancel?: () => void;
+  placementMode?: boolean;
+  signaturePlacementOverride?: SignaturePlacement;
+}) {
+  const template = version.presentation.layout_template ?? "clean";
+  const Template = TEMPLATE_REGISTRY[template] ?? CleanTemplate;
+  const placement =
+    signaturePlacementOverride ??
+    version.presentation.signature_placement ??
+    defaultSignaturePlacementForTemplate(template);
 
-  return (
-    <article
-      data-accent={presentation.accent_color}
-      data-register={presentation.visual_register}
-      className="portfolio-page"
-      style={{ backgroundColor: "var(--bg)", color: "var(--fg)" }}
-    >
-      {public_summary.sections.map((section, idx) => {
-        const Component = ARCHETYPE_REGISTRY[section.archetype];
-        if (!Component) return null;
-        const extraProps =
-          section.archetype === "signature_slot"
-            ? {
-                library_component: presentation.signature_element?.library_component ?? null,
-                fallback_items: version.character_card?.open_questions?.map(
-                  (q: string, i: number) => ({ label: String(i + 1), body: q }),
-                ) ?? [],
-              }
-            : {};
-        return <Component key={idx} {...(section.content as object)} {...extraProps} />;
-      })}
-    </article>
-  );
+  const rendered = <Template version={version} signaturePlacement={placement} />;
+
+  if (editMode) {
+    return (
+      <EditLayer
+        version={version}
+        placementMode={placementMode}
+        onSignatureMove={onSignatureMove}
+        onSignaturePlacementDraft={onSignaturePlacementDraft}
+        onPlacementCancel={onPlacementCancel}
+        signaturePlacementOverride={signaturePlacementOverride}
+      >
+        {rendered}
+      </EditLayer>
+    );
+  }
+
+  return rendered;
+}
+
+export function defaultSignaturePlacementForTemplate(template: LayoutTemplate): SignaturePlacement {
+  switch (template) {
+    case "clean":
+      return { mode: "inline" };
+    case "showcase":
+      return { mode: "fixed_side", side: "right" };
+    case "aesthetic":
+      return { mode: "fixed_hero" };
+  }
 }
