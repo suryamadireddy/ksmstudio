@@ -79,19 +79,31 @@ export function appendSnapshot(
   return { next: { ...working, snapshots: snaps }, appended: true };
 }
 
-export function branchWorkingDraftFromActive(active: PortfolioVersion): PortfolioVersion {
+/** New `working_draft` copied from any non–working-draft version (same shape as branching from active). */
+export function branchWorkingDraftFromVersionSource(source: PortfolioVersion): PortfolioVersion {
+  if (source.status === "working_draft") {
+    throw new Error("branch_source_cannot_be_working_draft");
+  }
   const id = randomUUID();
   const now = new Date().toISOString();
   return normalizeVersion({
-    ...active,
+    ...source,
     id,
     created_at: now,
     generated_by: "manual_edit",
-    parent_version_id: active.id,
+    parent_version_id: source.id,
     creative_brief: null,
     status: "working_draft",
     snapshots: [],
+    distillation_status: {
+      status: "idle",
+      last_attempt_at: now,
+    },
   });
+}
+
+export function branchWorkingDraftFromActive(active: PortfolioVersion): PortfolioVersion {
+  return branchWorkingDraftFromVersionSource(active);
 }
 
 export function copyWorkingDraftToDraft(working: PortfolioVersion): PortfolioVersion {

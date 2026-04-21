@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import {
   defaultSignaturePlacementForTemplate,
   PortfolioRender,
@@ -21,8 +22,11 @@ import {
   type PresentationSpec,
   type RenderedSection,
   type SignaturePlacement,
+  type WorkingDraftSnapshot,
 } from "@/lib/types";
 import { PortfolioGeneratePanel } from "./PortfolioGeneratePanel";
+import { WorkspaceChatPane } from "./WorkspaceChatPane";
+import { WorkspaceHistoryDrawer } from "./WorkspaceHistoryDrawer";
 import { WorkspaceTopBar } from "./WorkspaceTopBar";
 import { WorkspaceToolbar } from "./WorkspaceToolbar";
 
@@ -37,6 +41,18 @@ function isFloatingWithDims(p: SignaturePlacement): boolean {
     typeof p.width_pct === "number" &&
     typeof p.height_pct === "number"
   );
+}
+
+/** Read-only center preview for a working-draft snapshot row in History. */
+function versionForSnapshotPeek(base: PortfolioVersion, snap: WorkingDraftSnapshot): PortfolioVersion {
+  return {
+    ...base,
+    presentation: structuredClone(snap.presentation),
+    public_summary: structuredClone(snap.public_summary),
+    chatbot_context: structuredClone(snap.chatbot_context),
+    voice: structuredClone(snap.voice),
+    id: `${base.id}::peek::${snap.id}`,
+  };
 }
 
 export function WorkspaceTab({ idea }: { idea: Idea }) {
@@ -73,6 +89,14 @@ export function WorkspaceTab({ idea }: { idea: Idea }) {
   const [previewTheme] = useState<"light" | "dark">("light");
   const [progressLabel, setProgressLabel] = useState("Idle");
   const [regenerateOpen, setRegenerateOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  /** When History drawer is open, temporarily overrides center `PortfolioRender` (read-only). */
+  const [historyPeek, setHistoryPeek] = useState<PortfolioVersion | null>(null);
+  /** Desktop (lg+) only: thin strip collapse for toolbar / chat columns */
+  const [toolbarCollapsed, setToolbarCollapsed] = useState(false);
+  const [chatCollapsed, setChatCollapsed] = useState(false);
+  const toolbarPanelId = useId();
+  const chatPanelId = useId();
 
   const openAttemptedRef = useRef(false);
 
@@ -198,6 +222,18 @@ export function WorkspaceTab({ idea }: { idea: Idea }) {
     return previewVersionBase;
   }, [workingDraft, presentation, previewVersionBase, publicSummaryOverride]);
 
+  const centerPreviewVersion = useMemo(
+    () => historyPeek ?? mergedPreviewVersion,
+    [historyPeek, mergedPreviewVersion],
+  );
+
+  const historyPeekKey = useMemo(() => {
+    if (!historyPeek) return null;
+    const parts = historyPeek.id.split("::peek::");
+    if (parts.length === 2) return `snapshot:${parts[1]}`;
+    return `version:${historyPeek.id}`;
+  }, [historyPeek]);
+
   const signaturePlacementOverride =
     placementMode && placementDraft !== undefined ? placementDraft : undefined;
 
@@ -275,8 +311,8 @@ export function WorkspaceTab({ idea }: { idea: Idea }) {
 
   return (
     <>
-      <div className="flex h-full min-h-0 flex-1 flex-col gap-3 overflow-hidden">
-        <div className="shrink-0">
+      <div className="w-full min-w-0 pb-8">
+        <div className="mb-6">
           <WorkspaceTopBar
             ideaTitle={ideaDisplayName(idea)}
             versionLabel={versionLabel}
@@ -284,116 +320,187 @@ export function WorkspaceTab({ idea }: { idea: Idea }) {
             onSaveAsVersion={() => {
               /* Step 7 */
             }}
-            onHistory={() => {
-              /* Step 10 */
-            }}
+            onHistory={() => setHistoryOpen(true)}
             onRegenerate={() => setRegenerateOpen(true)}
             regenerateActive={regenerateOpen}
           />
         </div>
 
-        <div className="flex min-h-0 flex-1 flex-row overflow-hidden">
-          <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col gap-2 overflow-y-auto">
-            <p
-              className="shrink-0 text-[11px] font-semibold uppercase tracking-widest"
-              style={{ color: "var(--studio-amber-dim)" }}
+        <div className="mx-auto w-full max-w-[1600px]">
+          <div className="flex w-full flex-col gap-8 lg:flex-row lg:items-start lg:gap-8">
+            {/* Toolbar column — sticky on lg+; collapsible to strip on desktop */}
+            <aside
+              className={`flex w-full shrink-0 flex-col gap-2 lg:sticky lg:top-6 lg:self-start ${
+                toolbarCollapsed ? "lg:w-8 lg:max-w-8" : "lg:w-[280px] lg:max-w-[280px]"
+              }`}
             >
-              Live preview
-            </p>
-            <div
-              data-workspace-preview="true"
-              className="h-full min-h-0 min-w-0 w-full flex-1 overflow-y-auto rounded-lg border [&_.portfolio-page]:!min-h-0"
-              style={{ borderColor: "var(--studio-border)" }}
-            >
-              {mergedPreviewVersion ? (
-                <div
-                  data-theme={previewTheme}
-                  data-accent={mergedPreviewVersion.presentation.accent_color}
-                  className="min-h-min"
-                >
-                  <PortfolioRender
-                    version={mergedPreviewVersion}
-                    editMode={Boolean(workingDraft && mergedPreviewVersion.id === workingDraft.id)}
-                    placementMode={placementMode}
-                    signaturePlacementOverride={signaturePlacementOverride}
-                    onSignaturePlacementDraft={placementMode ? onPlacementDraft : undefined}
-                    onPlacementCancel={placementMode ? cancelPlacement : undefined}
-                    onSignatureMove={
-                      workingDraft && mergedPreviewVersion.id === workingDraft.id
-                        ? commitSignatureFromPreview
-                        : undefined
-                    }
-                  />
-                </div>
-              ) : (
-                <div
-                  className="flex min-h-[320px] items-center justify-center p-6 text-sm"
-                  style={{ color: "var(--studio-fg-muted)" }}
-                >
-                  No preview yet.
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div
-            className="flex min-h-0 min-w-0 w-[360px] max-w-[360px] shrink-0 flex-col gap-3 overflow-y-auto border-l pl-3"
-            style={{ borderLeftColor: "var(--studio-border)" }}
-          >
-              {workingDraft && presentation ? (
-                <div className="flex shrink-0 flex-col gap-2">
-                  {toolbarError ? (
-                    <p className="rounded border px-3 py-2 text-xs" style={{ borderColor: "#f87171", color: "#f87171" }}>
-                      {toolbarError}
-                    </p>
-                  ) : null}
-                  <WorkspaceToolbar
-                    presentation={presentation}
-                    placementModeActive={placementMode}
-                    onTemplateChange={(t: LayoutTemplate) => {
-                      cancelPlacement();
-                      void applyPatch({ layout_template: t });
-                    }}
-                    onAccentChange={(a: AccentColor) => {
-                      cancelPlacement();
-                      void applyPatch({ accent_color: a });
-                    }}
-                    onSectionsChange={(next: PresentationSection[]) => {
-                      cancelPlacement();
-                      void applyPatch({ sections: next });
-                    }}
-                    onBeginSignaturePlacement={beginPlacement}
-                    onResetSignaturePlacement={() => {
-                      cancelPlacement();
-                      void applyPatch({ signature_placement: null });
-                    }}
-                  />
-                </div>
-              ) : (
-                <div
-                  className="flex min-h-[120px] shrink-0 items-center justify-center rounded-lg border-2 border-dashed px-4 py-6 text-center text-sm font-medium"
-                  style={{
-                    borderColor: "var(--studio-border-strong)",
-                    backgroundColor: "var(--studio-bg-2)",
-                    color: "var(--studio-fg-muted)",
-                  }}
-                >
-                  Toolbar available when a working draft is open.
-                </div>
-              )}
-              <div
-                className="flex min-h-[160px] shrink-0 items-center justify-center rounded-lg border-2 border-dashed px-4 py-6 text-center text-sm font-medium"
+              <button
+                type="button"
+                className="hidden h-8 w-full shrink-0 items-center justify-center rounded border transition-colors lg:flex"
                 style={{
-                  borderColor: "var(--studio-border-strong)",
+                  borderColor: "var(--studio-border)",
                   backgroundColor: "var(--studio-bg-2)",
                   color: "var(--studio-fg-muted)",
                 }}
+                aria-expanded={!toolbarCollapsed}
+                aria-controls={toolbarPanelId}
+                aria-label={toolbarCollapsed ? "Expand workspace toolbar column" : "Collapse workspace toolbar column"}
+                onClick={() => setToolbarCollapsed((c) => !c)}
               >
-                Chat coming in Step 9
+                {toolbarCollapsed ? (
+                  <ChevronRight className="h-4 w-4 shrink-0" aria-hidden />
+                ) : (
+                  <ChevronLeft className="h-4 w-4 shrink-0" aria-hidden />
+                )}
+              </button>
+              <div
+                id={toolbarPanelId}
+                className={`min-w-0 flex flex-col gap-2 ${toolbarCollapsed ? "lg:hidden" : ""}`}
+              >
+                {workingDraft && presentation ? (
+                  <>
+                    {toolbarError ? (
+                      <p className="rounded border px-3 py-2 text-xs" style={{ borderColor: "#f87171", color: "#f87171" }}>
+                        {toolbarError}
+                      </p>
+                    ) : null}
+                    <WorkspaceToolbar
+                      presentation={presentation}
+                      placementModeActive={placementMode}
+                      onTemplateChange={(t: LayoutTemplate) => {
+                        cancelPlacement();
+                        void applyPatch({ layout_template: t });
+                      }}
+                      onAccentChange={(a: AccentColor) => {
+                        cancelPlacement();
+                        void applyPatch({ accent_color: a });
+                      }}
+                      onSectionsChange={(next: PresentationSection[]) => {
+                        cancelPlacement();
+                        void applyPatch({ sections: next });
+                      }}
+                      onBeginSignaturePlacement={beginPlacement}
+                      onResetSignaturePlacement={() => {
+                        cancelPlacement();
+                        void applyPatch({ signature_placement: null });
+                      }}
+                    />
+                  </>
+                ) : (
+                  <div
+                    className="flex min-h-[120px] items-center justify-center rounded-lg border-2 border-dashed px-4 py-6 text-center text-sm font-medium"
+                    style={{
+                      borderColor: "var(--studio-border-strong)",
+                      backgroundColor: "var(--studio-bg-2)",
+                      color: "var(--studio-fg-muted)",
+                    }}
+                  >
+                    Toolbar available when a working draft is open.
+                  </div>
+                )}
               </div>
+            </aside>
+
+            {/* Preview — natural height; page scrolls */}
+            <div className="min-w-0 w-full flex-1">
+              <p
+                className="mb-2 text-[11px] font-semibold uppercase tracking-widest"
+                style={{ color: "var(--studio-amber-dim)" }}
+              >
+                Live preview
+              </p>
+              <div
+                data-workspace-preview="true"
+                className="w-full rounded-lg border"
+                style={{ borderColor: "var(--studio-border)" }}
+              >
+                {centerPreviewVersion ? (
+                  <div
+                    data-theme={previewTheme}
+                    data-accent={centerPreviewVersion.presentation.accent_color}
+                    className="w-full"
+                  >
+                    <PortfolioRender
+                      version={centerPreviewVersion}
+                      editMode={Boolean(
+                        workingDraft &&
+                          centerPreviewVersion.id === workingDraft.id &&
+                          !historyPeek,
+                      )}
+                      placementMode={Boolean(workingDraft && !historyPeek && placementMode)}
+                      signaturePlacementOverride={historyPeek ? undefined : signaturePlacementOverride}
+                      onSignaturePlacementDraft={
+                        workingDraft && !historyPeek && placementMode ? onPlacementDraft : undefined
+                      }
+                      onPlacementCancel={workingDraft && !historyPeek && placementMode ? cancelPlacement : undefined}
+                      onSignatureMove={
+                        workingDraft && !historyPeek && centerPreviewVersion.id === workingDraft.id
+                          ? commitSignatureFromPreview
+                          : undefined
+                      }
+                    />
+                  </div>
+                ) : (
+                  <div
+                    className="flex min-h-[200px] items-center justify-center p-6 text-sm"
+                    style={{ color: "var(--studio-fg-muted)" }}
+                  >
+                    No preview yet.
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Chat — sticky column; collapsible to strip on desktop */}
+            <aside
+              className={`flex w-full shrink-0 flex-col gap-2 lg:sticky lg:top-6 lg:self-start ${
+                chatCollapsed ? "lg:w-8 lg:max-w-8" : "lg:w-[360px] lg:max-w-[360px]"
+              }`}
+            >
+              <button
+                type="button"
+                className="hidden h-8 w-full shrink-0 items-center justify-center rounded border transition-colors lg:flex"
+                style={{
+                  borderColor: "var(--studio-border)",
+                  backgroundColor: "var(--studio-bg-2)",
+                  color: "var(--studio-fg-muted)",
+                }}
+                aria-expanded={!chatCollapsed}
+                aria-controls={chatPanelId}
+                aria-label={chatCollapsed ? "Expand workspace chat column" : "Collapse workspace chat column"}
+                onClick={() => setChatCollapsed((c) => !c)}
+              >
+                {chatCollapsed ? (
+                  <ChevronLeft className="h-4 w-4 shrink-0" aria-hidden />
+                ) : (
+                  <ChevronRight className="h-4 w-4 shrink-0" aria-hidden />
+                )}
+              </button>
+              <div id={chatPanelId} className={`min-w-0 ${chatCollapsed ? "lg:hidden" : ""}`}>
+                <WorkspaceChatPane ideaId={idea.id} workingDraftId={workingDraftId} />
+              </div>
+            </aside>
           </div>
         </div>
       </div>
+
+      <WorkspaceHistoryDrawer
+        open={historyOpen}
+        onClose={() => {
+          setHistoryOpen(false);
+          setHistoryPeek(null);
+        }}
+        ideaId={idea.id}
+        versions={versions}
+        workingDraft={workingDraft}
+        peekKey={historyPeekKey}
+        onPeekVersion={(v) => setHistoryPeek(v ? structuredClone(v) : null)}
+        onPeekSnapshot={(snap) => {
+          if (!workingDraft) return;
+          setHistoryPeek(versionForSnapshotPeek(workingDraft, snap));
+        }}
+        onClearPeek={() => setHistoryPeek(null)}
+      />
 
       {regenerateOpen ? (
         <div
