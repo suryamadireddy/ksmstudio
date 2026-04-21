@@ -75,6 +75,20 @@ export async function POST(
       console.error("conversation insert error:", convErr);
       return Response.json({ error: "db_error" }, { status: 500 });
     }
+  } else {
+    const { data: existingConv, error: existingConvErr } = await supabase
+      .from("conversations")
+      .select("id, idea_id, context")
+      .eq("id", convId)
+      .single();
+    if (
+      existingConvErr ||
+      !existingConv ||
+      existingConv.idea_id !== row.id ||
+      existingConv.context !== "portfolio_public"
+    ) {
+      return Response.json({ error: "invalid_conversation" }, { status: 400 });
+    }
   }
 
   const { error: msgErr } = await supabase.from("messages").insert({
