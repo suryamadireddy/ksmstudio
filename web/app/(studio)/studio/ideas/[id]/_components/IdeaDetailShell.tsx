@@ -282,7 +282,7 @@ function OverviewTab({ idea }: { idea: Idea }) {
   const t = idea.triage;
   const d = idea.development;
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="flex flex-col">
       <RetriagePendingSection idea={idea} />
       <Section title="Original Idea">
         <Prose>{idea.raw_input}</Prose>
@@ -617,7 +617,7 @@ export default function IdeaDetailShell({
   const baseHref = `/studio/ideas/${idea.id}`;
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="flex w-full flex-col pb-10">
       {/* Back */}
       <Link
         href="/studio"
@@ -641,9 +641,17 @@ export default function IdeaDetailShell({
         <PublishToggle idea={idea} />
       </div>
 
-      <div className="grid flex-1 min-h-0 gap-8 overflow-hidden lg:grid-cols-[1fr_260px]">
-        {/* Left: tabs + content */}
-        <div className={tab === "workspace" ? "flex h-full min-h-0 min-w-0 flex-col" : ""}>
+      <div
+        className={
+          tab === "workspace" ? "w-full" : "grid w-full gap-8 lg:grid-cols-[minmax(0,1fr)_260px]"
+        }
+      >
+        {/* Main column: full width workspace; reading tabs constrained to max-w-5xl */}
+        <div
+          className={
+            tab === "workspace" ? "min-w-0 w-full" : "mx-auto min-w-0 w-full max-w-5xl"
+          }
+        >
           {/* Pipeline banner + re-triage button (overview tab only) */}
           {tab === "overview" && (
             <>
@@ -704,15 +712,11 @@ export default function IdeaDetailShell({
             />
           )}
           {tab === "outcomes" && <OutcomesPanel idea={idea} />}
-          {tab === "workspace" && (
-            <div className="flex h-full min-h-0 flex-1">
-              <WorkspaceTab idea={idea} />
-            </div>
-          )}
+          {tab === "workspace" && <WorkspaceTab idea={idea} />}
         </div>
 
-        {/* Right: sidebar */}
-        <IdeaSidebar idea={idea} />
+        {/* Right: triage / disposition — hidden on Workspace so the editor uses full width */}
+        {tab !== "workspace" ? <IdeaSidebar idea={idea} /> : null}
       </div>
     </div>
   );

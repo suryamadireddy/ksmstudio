@@ -16,6 +16,35 @@ import type { PortfolioVersion } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
+function historyContentForClaude(row: { role: string; content: string | null; extracted: unknown }): string {
+  const raw = String(row.content ?? "");
+  if (row.role !== "idea") return raw;
+
+  const extracted = row.extracted as { proposal_status?: unknown; proposed_edit?: unknown } | null;
+  const proposalStatus = extracted?.proposal_status;
+  const hasStructuredProposal = Boolean(extracted?.proposed_edit);
+  const hasProposedBlock = raw.includes("PROPOSED EDIT:");
+
+  if (proposalStatus === "accepted") {
+    const stripped = stripProposedEditBlock(raw);
+    const note =
+      "\n\n[Studio: The proposed edit on this assistant reply was accepted and applied to the working draft.]";
+    return stripped.trim() ? `${stripped}${note}` : `[Previous assistant reply included a proposal that was accepted.]${note}`;
+  }
+  if (proposalStatus === "rejected") {
+    const stripped = stripProposedEditBlock(raw);
+    const note = "\n\n[Studio: The proposed edit on this assistant reply was rejected and not applied.]";
+    return stripped.trim() ? `${stripped}${note}` : `[A proposal on this reply was rejected.]${note}`;
+  }
+  if (proposalStatus === "pending" && (hasStructuredProposal || hasProposedBlock)) {
+    const stripped = stripProposedEditBlock(raw);
+    const note =
+      "\n\n[Studio: A structured edit proposal from this reply is still pending in the studio (not yet applied).]";
+    return stripped.trim() ? `${stripped}${note}` : raw;
+  }
+  return raw;
+}
+
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id: ideaId } = await params;
   const gate = await loadAuthorizedPortfolio(ideaId);
@@ -38,7 +67,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     return Response.json({ error: "no_working_draft" }, { status: 400 });
   }
   const working = versions[idx] as PortfolioVersion;
-  const type = body.type ?? "message";
 
   const ensureWorkspaceConversation = async (conversationId?: string) => {
     if (!conversationId) {
@@ -95,7 +123,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const sse = (event: string, payload: unknown) =>
     encoder.encode(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`);
 
-  if (type === "reject_proposal") {
+  if (body.type === "reject_proposal") {
     let convId: string;
     try {
       convId = await ensureWorkspaceConversation(body.conversationId);
@@ -126,14 +154,15 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     return Response.json({ ok: true });
   }
 
-  if (type === "accept_proposal") {
+  if (body.type === "accept_proposal") {
+    const proposalMessageId = body.proposalMessageId;
     let convId: string;
     try {
       convId = await ensureWorkspaceConversation(body.conversationId);
     } catch {
       return Response.json({ error: "invalid_workspace_conversation" }, { status: 400 });
     }
-    const proposal = body.proposal ?? (await readProposalFromMessage(convId, body.proposalMessageId));
+    const proposal = body.proposal ?? (await readProposalFromMessage(convId, proposalMessageId));
     if (!proposal) {
       return Response.json({ error: "proposal_required" }, { status: 400 });
     }
@@ -234,11 +263,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
               return;
             }
 
-            if (body.proposalMessageId) {
+            if (proposalMessageId) {
               const { data } = await supabase
                 .from("messages")
                 .select("extracted")
-                .eq("id", body.proposalMessageId)
+                .eq("id", proposalMessageId)
                 .eq("conversation_id", convId)
                 .single();
               if (data) {
@@ -252,7 +281,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
                       proposal_accepted_at: new Date().toISOString(),
                     },
                   })
-                  .eq("id", body.proposalMessageId);
+                  .eq("id", proposalMessageId);
               }
             }
 
@@ -295,19 +324,28 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   });
   if (userIns.error) return Response.json({ error: "message_insert_failed" }, { status: 500 });
 
-  const { data: history } = await supabase
+  const gateForPrompt = await loadAuthorizedPortfolio(ideaId);
+  if (!gateForPrompt.ok) return gateForPrompt.response;
+  const versionsForPrompt = [...(gateForPrompt.portfolio.versions ?? [])];
+  const wdIdxPrompt = versionsForPrompt.findIndex((v) => v.status === "working_draft");
+  if (wdIdxPrompt === -1) {
+    return Response.json({ error: "no_working_draft" }, { status: 400 });
+  }
+  const workingForPrompt = versionsForPrompt[wdIdxPrompt] as PortfolioVersion;
+
+  const { data: history } = await gateForPrompt.supabase
     .from("messages")
-    .select("role, content")
+    .select("role, content, extracted")
     .eq("conversation_id", convId)
     .order("created_at");
   const anthropic = new Anthropic();
   const stream = await anthropic.messages.create({
     model: CONVERSE_MODEL,
     max_tokens: 1024,
-    system: composeWorkspaceChatPrompt(working),
+    system: composeWorkspaceChatPrompt(workingForPrompt),
     messages: (history ?? []).map((m) => ({
       role: m.role === "idea" ? "assistant" : (m.role as "user" | "assistant"),
-      content: m.content,
+      content: historyContentForClaude(m),
     })),
     stream: true,
   });
@@ -325,8 +363,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         }
         const proposal = parseProposedEdit(full);
         const stripped = stripProposedEditBlock(full);
+        const assistantMessageId = crypto.randomUUID();
         await supabase.from("messages").insert({
-          id: crypto.randomUUID(),
+          id: assistantMessageId,
           conversation_id: convId,
           idea_id: ideaId,
           role: "idea",
@@ -334,8 +373,21 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           extracted: proposal ? { proposed_edit: proposal, proposal_status: "pending" } : null,
           created_at: new Date().toISOString(),
         });
-        controller.enqueue(sse("assistant_done", { text: stripped, has_proposal: Boolean(proposal) }));
-        if (proposal) controller.enqueue(sse("proposed_edit", proposal));
+        controller.enqueue(
+          sse("assistant_done", {
+            text: stripped,
+            has_proposal: Boolean(proposal),
+            messageId: assistantMessageId,
+            proposal: proposal
+              ? {
+                  action: proposal.action,
+                  target: proposal.target ?? null,
+                  brief: proposal.brief,
+                }
+              : undefined,
+          }),
+        );
+        if (proposal) controller.enqueue(sse("proposed_edit", { ...proposal, messageId: assistantMessageId }));
         controller.close();
       },
     }),

@@ -33,7 +33,7 @@ export default async function StudioLayout({
       style={{ backgroundColor: "var(--studio-bg)", color: "var(--studio-fg)" }}
     >
       <StudioNav user={user} />
-      <main className="flex-1 min-h-0 overflow-hidden px-6 py-10">{children}</main>
+      <main className="min-h-0 flex-1 overflow-y-auto px-6 py-10">{children}</main>
     </div>
   );
 }

@@ -99,7 +99,15 @@ export function WorkspaceToolbar({
         </div>
       </section>
 
-      <SectionsList sections={presentation.sections} onChange={onSectionsChange} />
+      <section className="space-y-2">
+        <p
+          className="text-[11px] font-semibold uppercase tracking-widest"
+          style={{ color: "var(--studio-amber-dim)" }}
+        >
+          Sections
+        </p>
+        <SectionsList sections={presentation.sections} onChange={onSectionsChange} />
+      </section>
 
       <section className="space-y-2 border-t pt-4" style={{ borderColor: "var(--studio-border)" }}>
         <p

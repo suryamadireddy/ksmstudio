@@ -181,6 +181,44 @@ Every section uses one of these archetypes:
 10. signature_slot — the one custom component for this idea.
 11. conversation_invitation — the chatbot entry point.
 
+## The layout template
+
+You also pick a layout template that determines the spatial character
+of the page. You have three options:
+
+### clean
+
+Mood: clean, simple, pure. Single column, generous whitespace.
+Confidence through restraint. Nothing needs decoration. The content
+is the whole point. Best for: ideas whose strength is clarity of
+thought, ideas at early stages, ideas where quiet presentation
+respects the subject.
+
+### showcase
+
+Mood: makes the why easy. Two-column layout: the signature element
+pins to one side while the content explains beside it. The visitor
+sees the thing and understands the thing in the same moment. Best
+for: ideas with a strong visual or interactive signature that IS
+the argument, ideas whose domain is inherently visual, ideas where
+the physical object or artifact is the strongest communication.
+
+### aesthetic
+
+Mood: makes the visitor gasp. Full-viewport hero on open, asymmetric
+grid below. Ambitious typography. Designed to stop you. Best for:
+ideas whose character is dramatic or formative, ideas with a
+compelling first impression, ideas where emotional response matters
+as much as understanding.
+
+You must pick exactly one. Justify in one sentence (layout_template_rationale).
+Base your choice on the character card and the nature of the idea,
+not on what would make the page "impressive." A quiet idea gets
+clean. A bold idea gets aesthetic. Not the other way around.
+
+If the user's creative brief contradicts your template choice, follow
+the brief but note the tension in your rationale.
+
 ## What you output
 
 Return a PresentationSpec with:
@@ -309,6 +347,11 @@ COMPLETE_PRESENTATION_TOOL = {
                 "enum": ["technical", "editorial", "playful", "austere", "warm"],
             },
             "visual_register_rationale": {"type": "string"},
+            "layout_template": {
+                "type": "string",
+                "enum": ["clean", "showcase", "aesthetic"],
+            },
+            "layout_template_rationale": {"type": "string"},
             "sections": {
                 "type": "array",
                 "items": {
@@ -349,8 +392,16 @@ COMPLETE_PRESENTATION_TOOL = {
                              "placement", "rationale"],
             },
         },
-        "required": ["accent_color", "accent_color_rationale", "visual_register",
-                     "visual_register_rationale", "sections", "signature_element"],
+        "required": [
+            "accent_color",
+            "accent_color_rationale",
+            "visual_register",
+            "visual_register_rationale",
+            "layout_template",
+            "layout_template_rationale",
+            "sections",
+            "signature_element",
+        ],
     },
 }
 
