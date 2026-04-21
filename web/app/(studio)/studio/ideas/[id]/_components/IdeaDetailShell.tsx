@@ -282,7 +282,7 @@ function OverviewTab({ idea }: { idea: Idea }) {
   const t = idea.triage;
   const d = idea.development;
   return (
-    <div>
+    <div className="flex h-full min-h-0 flex-col">
       <RetriagePendingSection idea={idea} />
       <Section title="Original Idea">
         <Prose>{idea.raw_input}</Prose>
@@ -617,7 +617,7 @@ export default function IdeaDetailShell({
   const baseHref = `/studio/ideas/${idea.id}`;
 
   return (
-    <div>
+    <div className="flex h-full min-h-0 flex-col">
       {/* Back */}
       <Link
         href="/studio"
@@ -641,9 +641,9 @@ export default function IdeaDetailShell({
         <PublishToggle idea={idea} />
       </div>
 
-      <div className="grid min-h-0 gap-8 lg:grid-cols-[1fr_260px]">
+      <div className="grid flex-1 min-h-0 gap-8 overflow-hidden lg:grid-cols-[1fr_260px]">
         {/* Left: tabs + content */}
-        <div className={tab === "workspace" ? "flex min-h-0 min-w-0 flex-col" : ""}>
+        <div className={tab === "workspace" ? "flex h-full min-h-0 min-w-0 flex-col" : ""}>
           {/* Pipeline banner + re-triage button (overview tab only) */}
           {tab === "overview" && (
             <>
@@ -704,7 +704,11 @@ export default function IdeaDetailShell({
             />
           )}
           {tab === "outcomes" && <OutcomesPanel idea={idea} />}
-          {tab === "workspace" && <WorkspaceTab idea={idea} />}
+          {tab === "workspace" && (
+            <div className="flex h-full min-h-0 flex-1">
+              <WorkspaceTab idea={idea} />
+            </div>
+          )}
         </div>
 
         {/* Right: sidebar */}

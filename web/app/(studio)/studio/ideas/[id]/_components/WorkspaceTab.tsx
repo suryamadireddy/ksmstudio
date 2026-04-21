@@ -275,7 +275,7 @@ export function WorkspaceTab({ idea }: { idea: Idea }) {
 
   return (
     <>
-      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
+      <div className="flex h-full min-h-0 flex-1 flex-col gap-3 overflow-hidden">
         <div className="shrink-0">
           <WorkspaceTopBar
             ideaTitle={ideaDisplayName(idea)}
@@ -293,7 +293,7 @@ export function WorkspaceTab({ idea }: { idea: Idea }) {
         </div>
 
         <div className="flex min-h-0 flex-1 flex-row overflow-hidden">
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-2 overflow-hidden">
+          <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col gap-2 overflow-y-auto">
             <p
               className="shrink-0 text-[11px] font-semibold uppercase tracking-widest"
               style={{ color: "var(--studio-amber-dim)" }}
@@ -301,7 +301,8 @@ export function WorkspaceTab({ idea }: { idea: Idea }) {
               Live preview
             </p>
             <div
-              className="min-h-0 w-full flex-1 overflow-y-auto rounded-lg border [&_.portfolio-page]:!min-h-0 [&_*]:!max-w-none"
+              data-workspace-preview="true"
+              className="h-full min-h-0 min-w-0 w-full flex-1 overflow-y-auto rounded-lg border [&_.portfolio-page]:!min-h-0"
               style={{ borderColor: "var(--studio-border)" }}
             >
               {mergedPreviewVersion ? (
@@ -336,7 +337,7 @@ export function WorkspaceTab({ idea }: { idea: Idea }) {
           </div>
 
           <div
-            className="flex min-h-0 w-[360px] max-w-[360px] shrink-0 flex-col gap-3 overflow-y-auto border-l pl-3"
+            className="flex min-h-0 min-w-0 w-[360px] max-w-[360px] shrink-0 flex-col gap-3 overflow-y-auto border-l pl-3"
             style={{ borderLeftColor: "var(--studio-border)" }}
           >
               {workingDraft && presentation ? (

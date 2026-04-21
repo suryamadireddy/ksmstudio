@@ -13,7 +13,7 @@ export function CleanTemplate({ version, signaturePlacement: _placement }: Templ
       data-template="clean"
       className="portfolio-page min-h-screen bg-[var(--bg)] text-[var(--fg)]"
     >
-      <div className="mx-auto max-w-2xl space-y-24 px-6 py-32">
+      <div className="mx-auto max-w-2xl space-y-24 px-6 py-32 [[data-workspace-preview]_&]:max-w-none [[data-workspace-preview]_&]:w-full">
         {pairs.map(({ section, index }) => (
           <ArchetypeBlock key={index} version={version} section={section} index={index} />
         ))}

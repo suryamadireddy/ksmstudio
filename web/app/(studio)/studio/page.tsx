@@ -38,7 +38,7 @@ export default async function StudioPage() {
   };
 
   return (
-    <div>
+    <div className="mx-auto max-w-5xl">
       {/* Header */}
       <div className="mb-8 flex items-start justify-between gap-4">
         <div>

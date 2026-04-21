@@ -104,10 +104,22 @@ export function EditLayer({
 
   const applyFloatingStyle = useCallback(() => {
     const root = rootRef.current;
-    if (!root || !signaturePlacementOverride || signaturePlacementOverride.mode !== "floating") return;
+    if (!root) return;
     const el = root.querySelector<HTMLElement>("[data-signature-slot]");
     if (!el) return;
-    const { x_pct, y_pct, width_pct, height_pct } = signaturePlacementOverride;
+    const effectivePlacement = signaturePlacementOverride ?? version.presentation.signature_placement;
+    if (!effectivePlacement || effectivePlacement.mode !== "floating") {
+      el.style.position = "";
+      el.style.left = "";
+      el.style.top = "";
+      el.style.width = "";
+      el.style.height = "";
+      el.style.transform = "";
+      el.style.zIndex = "";
+      el.style.cursor = "";
+      return;
+    }
+    const { x_pct, y_pct, width_pct, height_pct } = effectivePlacement;
     if (
       x_pct === undefined ||
       y_pct === undefined ||
@@ -124,7 +136,7 @@ export function EditLayer({
     el.style.transform = "translate(-50%, -50%)";
     el.style.zIndex = "20";
     el.style.cursor = placementMode ? "grab" : "";
-  }, [signaturePlacementOverride, placementMode]);
+  }, [signaturePlacementOverride, version.presentation.signature_placement, placementMode]);
 
   useEffect(() => {
     applyFloatingStyle();

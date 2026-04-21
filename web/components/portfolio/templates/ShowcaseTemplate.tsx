@@ -24,7 +24,7 @@ export function ShowcaseTemplate({ version, signaturePlacement }: TemplateProps)
         data-template="showcase"
         className="portfolio-page min-h-screen bg-[var(--bg)] text-[var(--fg)]"
       >
-        <div className="mx-auto max-w-3xl space-y-16 px-6 py-16">
+        <div className="mx-auto max-w-3xl space-y-16 px-6 py-16 [[data-workspace-preview]_&]:max-w-none [[data-workspace-preview]_&]:w-full">
           {pairs.map(({ section, index }) => (
             <ArchetypeBlock key={index} version={version} section={section} index={index} />
           ))}
@@ -41,7 +41,7 @@ export function ShowcaseTemplate({ version, signaturePlacement }: TemplateProps)
   ));
 
   const signatureEl = (
-    <aside className="w-full shrink-0 lg:sticky lg:top-8 lg:self-start lg:max-w-sm">
+    <aside className="w-full shrink-0 lg:sticky lg:top-8 lg:self-start lg:max-w-sm [[data-workspace-preview]_&]:max-w-none [[data-workspace-preview]_&]:w-full">
       <ArchetypeBlock
         version={version}
         section={signaturePair.section}
@@ -50,7 +50,11 @@ export function ShowcaseTemplate({ version, signaturePlacement }: TemplateProps)
     </aside>
   );
 
-  const contentEl = <div className="mx-auto min-w-0 max-w-xl space-y-16">{beforeBlocks}</div>;
+  const contentEl = (
+    <div className="mx-auto min-w-0 max-w-xl space-y-16 [[data-workspace-preview]_&]:max-w-none [[data-workspace-preview]_&]:w-full">
+      {beforeBlocks}
+    </div>
+  );
 
   const gridClass =
     side === "right"
@@ -64,7 +68,7 @@ export function ShowcaseTemplate({ version, signaturePlacement }: TemplateProps)
       data-template="showcase"
       className="portfolio-page min-h-screen bg-[var(--bg)] text-[var(--fg)]"
     >
-      <div className="mx-auto max-w-6xl px-6 py-16">
+      <div className="mx-auto max-w-6xl px-6 py-16 [[data-workspace-preview]_&]:max-w-none [[data-workspace-preview]_&]:w-full">
         <div className={gridClass}>
           {side === "right" ? (
             <>
@@ -79,7 +83,7 @@ export function ShowcaseTemplate({ version, signaturePlacement }: TemplateProps)
           )}
         </div>
         {after.length > 0 && (
-          <div className="mx-auto mt-20 w-full max-w-3xl space-y-20 border-t border-[var(--border)] pt-20">
+          <div className="mx-auto mt-20 w-full max-w-3xl space-y-20 border-t border-[var(--border)] pt-20 [[data-workspace-preview]_&]:max-w-none [[data-workspace-preview]_&]:w-full">
             {afterBlocks}
           </div>
         )}
