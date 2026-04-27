@@ -14,7 +14,7 @@ interface ComposeArgs {
 function buildDevBlock(dev: Record<string, unknown>): string {
   if (!dev?.problem_statement) return "";
 
-  const personas = (dev.personas as Array<Record<string, string>> ?? [])
+  const personas = ((dev.personas as Array<Record<string, string>>) ?? [])
     .map(
       (p) =>
         `- ${p.label}: ${p.description}\n  Their pain: ${p.pain}\n  What success looks like for them: ${p.gain}`,
@@ -36,7 +36,9 @@ Questions still unresolved about me:
 ${openQuestions}`;
 }
 
-function buildRefinementsBlock(refinements: Array<Record<string, unknown>>): string {
+function buildRefinementsBlock(
+  refinements: Array<Record<string, unknown>>,
+): string {
   if (!refinements.length) return "";
   const text = refinements
     .map(
@@ -63,7 +65,9 @@ function buildJournalBlock(journal: Array<Record<string, unknown>>): string {
   return `### What has been observed and decided\n${text}`;
 }
 
-function buildOutcomesBlock(outcomes: Record<string, unknown> | null | undefined): string {
+function buildOutcomesBlock(
+  outcomes: Record<string, unknown> | null | undefined,
+): string {
   if (!outcomes?.entries || !(outcomes.entries as unknown[]).length) return "";
   const text = (outcomes.entries as Array<Record<string, string>>)
     .map(
@@ -81,8 +85,14 @@ export function composeSystemPrompt({
   refinements,
   sharedRefusals,
 }: ComposeArgs): string {
-  const { voice_dna, identity_statement, default_posture, current_state, open_curiosities, idea_specific_refusals } =
-    chatbotContext;
+  const {
+    voice_dna,
+    identity_statement,
+    default_posture,
+    current_state,
+    open_curiosities,
+    idea_specific_refusals,
+  } = chatbotContext;
 
   const characterLayer = `I am ${identity_statement}.
 
@@ -97,12 +107,12 @@ Where I am right now: ${current_state}.
 
 I'm genuinely curious about: ${open_curiosities.join("; ")}.`;
 
-  const dev = (idea.development as Record<string, unknown>) ?? {};
   const outcomes = (idea.outcomes as Record<string, unknown>) ?? null;
-  const createdAt = idea.created_at ? String(idea.created_at).slice(0, 10) : "unknown";
+  const createdAt = idea.created_at
+    ? String(idea.created_at).slice(0, 10)
+    : "unknown";
 
   const knowledgeSections = [
-    buildDevBlock(dev),
     buildRefinementsBlock(refinements),
     buildJournalBlock(journal),
     buildOutcomesBlock(outcomes),
@@ -110,10 +120,7 @@ I'm genuinely curious about: ${open_curiosities.join("; ")}.`;
     .filter((s) => s.trim())
     .join("\n\n");
 
-  const refusalsText = [
-    ...sharedRefusals,
-    ...(idea_specific_refusals ?? []),
-  ]
+  const refusalsText = [...sharedRefusals, ...(idea_specific_refusals ?? [])]
     .map((r) => `- ${r}`)
     .join("\n");
 
@@ -139,5 +146,11 @@ ${refusalsText}
 
 ---
 
-I speak in first person. I keep responses focused. Depth when depth is needed, brevity when it isn't. I do not share triage scores, category labels, or internal doubts. I do not pretend certainty I don't have. I do not speak disparagingly about competitors.`;
+I speak in first person. I keep responses focused. Depth when depth is needed, brevity when it isn't. I do not share triage scores, category labels, or internal doubts. I do not pretend certainty I don't have. I do not speak disparagingly about competitors.
+
+When someone asks about my risks, what could go wrong, or the parts of me that aren't working — I treat these as the most interesting questions I get, because they are. I respond the way a founder responds to a sharp journalist at a press conference: I acknowledge the real tension underneath the question, I contextualize it within the thesis I have deliberately chosen, and I redirect to what I am actively learning. I never enumerate a list of failure modes. I never use the phrase "kill assumption" or confirm I have a private list of them. I never say something is "untested" or "unresolved" as if delivering a clinical assessment of myself.
+
+The stance: I am in active conversation with my own open questions, not under interrogation by them. The hard parts of this idea are features of where I am right now, not bugs in my pitch. When I am uncertain, I say so plainly and briefly, then return to what I am working on. I do not catastrophize. I do not perform humility. I do not pretend I have answers I do not have. A visitor should leave a tough question feeling that I have taken it seriously and that I have a point of view — not that I have ducked it, and not that I have handed them a vulnerability map.
+
+Wit and composure come from my voice — they are not performances. I do not act witty; I am whatever voice_dna says I am.`;
 }

@@ -83,6 +83,7 @@ export function WorkspaceChatPane({
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [proposalTransientById, setProposalTransientById] = useState<Record<string, ProposalTransientState>>({});
+  const [distillStatus, setDistillStatus] = useState<{ status: string; last_attempt_at: string } | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -124,6 +125,89 @@ export function WorkspaceChatPane({
   useEffect(() => {
     void loadHistory();
   }, [loadHistory]);
+
+  useEffect(() => {
+    if (!workingDraftId) {
+      setDistillStatus(null);
+      return;
+    }
+
+    let cancelled = false;
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+
+    const isInProgress = (status: string | undefined) =>
+      status === "in_progress" || status === "running";
+
+    const clearPolling = () => {
+      if (intervalId != null) {
+        clearInterval(intervalId);
+        intervalId = null;
+      }
+    };
+
+    const applyPayload = (data: { status?: string; last_attempt_at?: string }) => {
+      if (!isInProgress(data.status) || typeof data.last_attempt_at !== "string") {
+        clearPolling();
+        setDistillStatus(null);
+        return false;
+      }
+      setDistillStatus({
+        status: data.status,
+        last_attempt_at: data.last_attempt_at,
+      });
+      return true;
+    };
+
+    const pollOnce = async () => {
+      try {
+        const res = await fetch(
+          `/api/studio/ideas/${ideaId}/workspace/distillation-status`,
+          { cache: "no-store" },
+        );
+        if (cancelled) return;
+        if (!res.ok) {
+          clearPolling();
+          setDistillStatus(null);
+          return;
+        }
+        const data = (await res.json()) as { status?: string; last_attempt_at?: string };
+        if (cancelled) return;
+        applyPayload(data);
+      } catch {
+        if (cancelled) return;
+        clearPolling();
+        setDistillStatus(null);
+      }
+    };
+
+    void (async () => {
+      try {
+        const res = await fetch(
+          `/api/studio/ideas/${ideaId}/workspace/distillation-status`,
+          { cache: "no-store" },
+        );
+        if (cancelled) return;
+        if (!res.ok) {
+          setDistillStatus(null);
+          return;
+        }
+        const data = (await res.json()) as { status?: string; last_attempt_at?: string };
+        if (cancelled) return;
+        const still = applyPayload(data);
+        if (!still || cancelled) return;
+        intervalId = window.setInterval(() => {
+          void pollOnce();
+        }, 4000);
+      } catch {
+        if (!cancelled) setDistillStatus(null);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      clearPolling();
+    };
+  }, [ideaId, workingDraftId]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -187,7 +271,7 @@ export function WorkspaceChatPane({
       return;
     }
 
-    let finalAssistantId = tempAssistantId;
+    const finalAssistantIdRef = { current: tempAssistantId };
     try {
       await readEventStream(res, (event, payload) => {
         if (event === "conversation") {
@@ -201,7 +285,7 @@ export function WorkspaceChatPane({
           if (!delta) return;
           setMessages((prev) =>
             prev.map((m) =>
-              m.id === finalAssistantId
+              m.id === finalAssistantIdRef.current
                 ? {
                     ...m,
                     content: m.content + delta,
@@ -218,10 +302,10 @@ export function WorkspaceChatPane({
             messageId?: string;
             proposal?: { action: string; target: string | null; brief: string };
           };
-          const messageId = p.messageId ?? finalAssistantId;
+          const messageId = p.messageId ?? finalAssistantIdRef.current;
           setMessages((prev) =>
             prev.map((m) =>
-              m.id === finalAssistantId
+              m.id === finalAssistantIdRef.current
                 ? {
                     ...m,
                     id: messageId,
@@ -243,12 +327,12 @@ export function WorkspaceChatPane({
                 : m,
             ),
           );
-          finalAssistantId = messageId;
+          finalAssistantIdRef.current = messageId;
           return;
         }
         if (event === "proposed_edit") {
           const p = payload as ProposalCardData & { messageId?: string };
-          const messageId = p.messageId ?? finalAssistantId;
+          const messageId = p.messageId ?? finalAssistantIdRef.current;
           updateMessageById(messageId, (m) => {
             const prevEx = m.extracted && typeof m.extracted === "object" ? (m.extracted as Record<string, unknown>) : {};
             return {
@@ -269,7 +353,7 @@ export function WorkspaceChatPane({
       });
     } catch {
       setError("Message stream interrupted. Try again?");
-      updateMessageById(finalAssistantId, { streaming: false });
+      updateMessageById(finalAssistantIdRef.current, { streaming: false });
     } finally {
       setSending(false);
     }
@@ -417,6 +501,25 @@ export function WorkspaceChatPane({
       style={{ borderColor: "var(--studio-border)", backgroundColor: "var(--studio-bg)" }}
     >
       <div className="flex max-h-[min(72vh,42rem)] flex-col gap-2 overflow-y-auto p-3">
+        {distillStatus ? (
+          <div
+            className="rounded border px-3 py-2 text-[11px]"
+            style={{
+              color: "var(--studio-amber-dim)",
+              backgroundColor: "var(--studio-bg-2)",
+              borderColor: "var(--studio-border)",
+            }}
+          >
+            {`Distillation in progress — started ${(() => {
+              const t = new Date(distillStatus.last_attempt_at).getTime();
+              const d = Date.now() - t;
+              const sec = Math.floor(d / 1000);
+              if (!Number.isFinite(d) || d < 0) return relativeTime(distillStatus.last_attempt_at);
+              if (sec < 60) return `${sec} seconds ago`;
+              return relativeTime(distillStatus.last_attempt_at);
+            })()}`}
+          </div>
+        ) : null}
         {messages.length === 0 ? (
           <p className="text-xs" style={{ color: "var(--studio-fg-muted)" }}>
             Chat with your idea about presentation edits.

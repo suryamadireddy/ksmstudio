@@ -709,12 +709,17 @@ def stream_stage(
             if label in ("Builder Brief",)
             else {"type": "adaptive"}
         )
+        # Use top-level cache_control param, not system block array.
+        # Python SDK's messages.stream() context manager silently hangs on
+        # block array format. TypeScript SDK accepts block arrays natively;
+        # Python does not. Verified Apr 2026.
         with client.messages.stream(
             model=MODEL,
             max_tokens=max_tokens,
             thinking=thinking_config,
             system=system,
             messages=messages,
+            cache_control={"type": "ephemeral"},
         ) as stream:
             for event in stream:
                 if event.type == "content_block_delta":

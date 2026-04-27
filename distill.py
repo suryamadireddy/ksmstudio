@@ -275,6 +275,30 @@ Content shape per archetype:
   - signature_slot: { intro? }
   - conversation_invitation: { intro, prompt_suggestions: string[] }
 
+## Content contract — what may and may not appear in chatbot_context
+
+current_state:
+  ALLOWED — where the idea stands as the idea would describe it to a 
+  curious visitor. What exists, what's been built, what's being tested.
+  FORBIDDEN — internal research findings, triage scores, kill assumption 
+  language, phrases like "empirically untested", "weak demand signals", 
+  "LLM summarization question", or any framing that reads as an 
+  internal evaluation.
+
+idea_specific_refusals:
+  ALLOWED — what the idea will not do, written in the idea's own voice 
+  as principled positions. "Will not X" is fine.
+  FORBIDDEN — any reason that references internal research. Never 
+  "because the research showed Y" or "because the framing bias question 
+  is unresolved". The refusal is the position, not the reasoning behind it.
+
+open_curiosities:
+  ALLOWED — genuine intellectual questions the idea holds about itself, 
+  its users, and its domain. These are public. Write them as things a 
+  thoughtful founder would say out loud to a visitor.
+  FORBIDDEN — any question that is actually a kill assumption in disguise 
+  (e.g., "whether there is sufficient demand" framed as curiosity).
+
 ## Rules
 
 Write in the idea's voice. Pull vocabulary, rhythm, and metaphors
