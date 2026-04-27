@@ -39,6 +39,15 @@ export function FeaturedProjectsSection({
   projects: PublicProjectCard[];
 }) {
   const featuredProjects = projects.slice(0, MAX_FEATURED_TILES);
+  if (featuredProjects.length === 0) return null;
+  return <FeaturedProjectsSectionInner projects={featuredProjects} />;
+}
+
+function FeaturedProjectsSectionInner({
+  projects: featuredProjects,
+}: {
+  projects: PublicProjectCard[];
+}) {
   const sectionRef = useRef<HTMLElement | null>(null);
   const [isMdUp, setIsMdUp] = useState(false);
   const [viewportH, setViewportH] = useState(900);
@@ -96,16 +105,6 @@ export function FeaturedProjectsSection({
   const availableHeightPx = Math.max(140, stickyHeightPx - INSET_PX * 2);
   const collapsedHeightPx = Math.max(88, availableHeightPx * COLLAPSED_RATIO);
 
-  if (featuredProjects.length === 0) {
-    return (
-      <section id="work" className="px-2 py-2 md:px-4">
-        <div className="rounded-3xl border p-8 text-muted-foreground">
-          No public projects yet.
-        </div>
-      </section>
-    );
-  }
-
   const displayIndex =
     openProgress > 0.985
       ? browseIndex
@@ -140,7 +139,7 @@ export function FeaturedProjectsSection({
       style={{ height: `${SECTION_SCROLL_BUDGET_VH}vh` }}
     >
       <div
-        className="sticky overflow-hidden bg-white"
+        className="sticky overflow-hidden bg-[var(--bg)]"
         style={{
           top: `${HEADER_PX}px`,
           height: `${stickyHeightPx}px`,
@@ -156,13 +155,13 @@ export function FeaturedProjectsSection({
         >
           <div className="mx-auto w-full max-w-6xl">
             <div className="max-w-3xl">
-              <p className="mb-4 text-xs font-medium uppercase tracking-[0.2em] text-muted-foreground md:mb-6">
+              <p className="mb-4 text-xs font-medium uppercase tracking-[0.2em] text-[var(--muted)] md:mb-6">
                 AI Product Studio
               </p>
-              <h1 className="font-serif text-3xl font-normal leading-[1.05] tracking-tight text-foreground md:text-5xl lg:text-6xl">
+              <h1 className="font-serif text-3xl font-normal leading-[1.05] tracking-tight text-[var(--fg)] md:text-5xl lg:text-6xl">
                 Where ideas become research-backed products
               </h1>
-              <p className="mt-5 max-w-xl text-base leading-relaxed text-muted-foreground md:mt-8 md:text-xl">
+              <p className="mt-5 max-w-xl text-base leading-relaxed text-[var(--muted)] md:mt-8 md:text-xl">
                 Product strategy, AI-powered workflows, and design thinking -
                 synthesized into PRDs, prototype directions, and interactive explainers.
               </p>
@@ -261,13 +260,13 @@ export function FeaturedProjectsSection({
         >
           <div className="mx-auto w-full max-w-6xl">
             <div className="mx-auto max-w-2xl text-center">
-              <p className="mb-6 text-xs font-medium uppercase tracking-[0.2em] text-muted-foreground">
+              <p className="mb-6 text-xs font-medium uppercase tracking-[0.2em] text-[var(--muted)]">
                 Philosophy
               </p>
-              <blockquote className="font-serif text-2xl font-normal leading-relaxed tracking-tight text-foreground md:text-3xl lg:text-4xl">
+              <blockquote className="font-serif text-2xl font-normal leading-relaxed tracking-tight text-[var(--fg)] md:text-3xl lg:text-4xl">
                 Building thoughtful products with clarity, structure, and taste.
               </blockquote>
-              <p className="mt-8 text-muted-foreground">
+              <p className="mt-8 text-[var(--muted)]">
                 Every project begins with deep understanding and ends with actionable direction -
                 grounded in research, shaped by strategy, and refined through iteration.
               </p>

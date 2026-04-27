@@ -185,6 +185,45 @@
   animation: fadeUp 0.6s ease-out forwards;
 }
 
+/* ── Portfolio public theme (light/dark via data-theme on <html> or any wrapper) ─────────── */
+:root[data-theme="light"],
+[data-theme="light"] {
+  --bg: #fafaf8;
+  --fg: #1a1a1a;
+  --muted: #6b6b6b;
+  --border: #e5e5e0;
+  --surface: #ffffff;
+}
+
+:root[data-theme="dark"],
+[data-theme="dark"] {
+  --bg: #0f0f0f;
+  --fg: #f4f4f0;
+  --muted: #8a8a8a;
+  --border: #262626;
+  --surface: #1a1a1a;
+}
+
+/* Accent colors — each has light-mode and dark-mode values */
+[data-accent="amber"][data-theme="light"]      { --accent: #b45309; }
+[data-accent="amber"][data-theme="dark"]       { --accent: #fbbf24; }
+[data-accent="deep_teal"][data-theme="light"]  { --accent: #0f766e; }
+[data-accent="deep_teal"][data-theme="dark"]   { --accent: #5eead4; }
+[data-accent="ember_red"][data-theme="light"]  { --accent: #b91c1c; }
+[data-accent="ember_red"][data-theme="dark"]   { --accent: #fca5a5; }
+[data-accent="sage"][data-theme="light"]       { --accent: #4d7c0f; }
+[data-accent="sage"][data-theme="dark"]        { --accent: #a3e635; }
+[data-accent="indigo"][data-theme="light"]     { --accent: #3730a3; }
+[data-accent="indigo"][data-theme="dark"]      { --accent: #a5b4fc; }
+[data-accent="terracotta"][data-theme="light"] { --accent: #9a3412; }
+[data-accent="terracotta"][data-theme="dark"]  { --accent: #fdba74; }
+
+/* Workspace edit layer — section affordance (templates stay unaware) */
+.portfolio-edit-layer [data-section-index]:hover {
+  outline: 1px solid color-mix(in srgb, var(--accent) 50%, transparent);
+  outline-offset: 6px;
+}
+
 /* ── Studio card hover ─────────────────────────────────────────────────────── */
 .idea-card:hover {
   border-color: var(--studio-border-strong) !important;

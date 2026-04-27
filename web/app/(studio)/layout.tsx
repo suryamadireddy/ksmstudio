@@ -29,11 +29,11 @@ export default async function StudioLayout({
 
   return (
     <div
-      className={`studio ${playfair.variable} ${jetbrains.variable} min-h-screen`}
+      className={`studio ${playfair.variable} ${jetbrains.variable} flex h-screen flex-col`}
       style={{ backgroundColor: "var(--studio-bg)", color: "var(--studio-fg)" }}
     >
       <StudioNav user={user} />
-      <main className="mx-auto max-w-5xl px-6 py-10">{children}</main>
+      <main className="min-h-0 flex-1 overflow-y-auto px-6 py-10">{children}</main>
     </div>
   );
 }

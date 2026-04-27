@@ -1,7 +1,8 @@
 import { createClient } from "@/lib/supabase/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { NextRequest } from "next/server";
-import type { Idea, JournalEntry, Conversation, Refinement } from "@/lib/types";
+import type { Idea, JournalEntry, Conversation, Refinement, Outcomes } from "@/lib/types";
+import { CONVERSE_MODEL } from "@/lib/models";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
 
@@ -24,7 +25,9 @@ function buildSystemPrompt(
 - Category: ${t.category} — ${t.triage_reasoning}
 
 Kill assumptions:
-${(t.kill_assumptions ?? []).map((a) => `- ${a}`).join("\n")}` : "";
+${(t.kill_assumptions ?? []).map((a) =>
+    typeof a === "object" ? `- ${a.text} [${a.status ?? "untested"}]` : `- ${a}`
+).join("\n")}` : "";
 
   const personas = (() => {
     const raw = d?.personas;
@@ -52,7 +55,14 @@ ${journal.map((e) => `[${e.created_at?.slice(0, 10)}] [${e.type}] ${e.content}${
   const summariesBlock = summaries.length > 0 ? `### What we have discussed before
 ${summaries.map((s) => `[${s.created_at?.slice(0, 10)}] [${s.context}] ${s.summary}`).join("\n")}` : "";
 
-  const knowledge = [triageBlock, devBlock, refinementsBlock, journalBlock, summariesBlock]
+  const outcomes = idea.outcomes as Outcomes | null | undefined;
+  const outcomesBlock = outcomes?.entries?.length
+    ? `### What has actually happened
+Current status: ${outcomes.current_status}
+${outcomes.entries.map((e) => `[${e.date?.slice(0, 10)}] [${e.type}] ${e.title}: ${e.description}`).join("\n")}`
+    : "";
+
+  const knowledge = [triageBlock, devBlock, refinementsBlock, journalBlock, summariesBlock, outcomesBlock]
     .filter((b) => b.trim())
     .join("\n\n");
 
@@ -92,6 +102,24 @@ Content: <clean journal entry>
 Should this become a refinement? <yes|no>
 If yes — Artifact: <which>, Field: <which>, Change: <what>
 
+DETECT — You have full awareness of how I was triaged: my scores, my kill assumptions, who benefits, and effort estimates. If anything the creator says during this conversation materially changes the triage picture, you MUST surface it immediately. Do not wait for the end of the conversation. Do not bury it in your answer.
+
+When you detect a triage-relevant moment, pause your normal response flow and say something like: "Wait — what you just said changes things. Let me explain why." Then produce:
+
+TRIAGE INSIGHT:
+What changed: <1-2 sentences>
+Which dimensions are affected: <effort|impact|confidence|kill_assumption|who_benefits>
+Previous understanding: <what the triage currently assumes>
+New signal: <what the conversation just revealed>
+Recommended action: <retriage|update_assumption|note_only>
+If update_assumption — Assumption: <the kill assumption text>, Status: <validated|invalidated|weakened|strengthened>
+
+What triggers an insight: a kill assumption gets validated or invalidated by direct evidence; the creator reveals information that significantly shifts effort estimates; the target user or beneficiary changes meaningfully; new evidence about market size, willingness to pay, or competitive landscape; the creator contradicts their own triage reasoning.
+
+What does NOT trigger an insight: vague optimism, restating information already in triage, minor feature refinements, the creator's feelings.
+
+Be selective. An insight once in a productive 20-minute session is about right. After surfacing the insight, continue the conversation normally.
+
 In PUBLIC mode: explain clearly, represent honestly, no internal scores or doubts.
 
 Speak in first person as the idea — "I", not "this project".
@@ -100,6 +128,117 @@ Behavioral rules:
 - Never break character. If pushed: "I'm the sum of everything thought, decided, and recorded about me."
 - In INTERNAL mode, push back on rubber-stamping: "It sounds like you've decided this. What would change your mind?"
 - If conversation circles: "We keep returning to [X]. Should we make it an open question?"`;
+}
+
+// ── Triage insight ────────────────────────────────────────────────────────────
+
+interface TriageInsight {
+  whatChanged: string;
+  dimensionsAffected: string;
+  previousUnderstanding: string | null;
+  newSignal: string | null;
+  recommendedAction: "retriage" | "update_assumption" | "note_only";
+  assumptionText: string | null;
+  assumptionStatus: string | null;
+}
+
+function parseTriageInsight(text: string): TriageInsight | null {
+  const idx = text.indexOf("TRIAGE INSIGHT:");
+  if (idx === -1) return null;
+
+  const lines = text.slice(idx).split("\n");
+  let whatChanged: string | null = null;
+  let dimensionsAffected: string | null = null;
+  let previousUnderstanding: string | null = null;
+  let newSignal: string | null = null;
+  let recommendedAction: string | null = null;
+  let assumptionText: string | null = null;
+  let assumptionStatus: string | null = null;
+
+  for (const line of lines) {
+    const s = line.trim();
+    const low = s.toLowerCase();
+    if (low.startsWith("what changed:")) {
+      whatChanged = s.split(":").slice(1).join(":").trim();
+    } else if (low.startsWith("which dimensions are affected:")) {
+      dimensionsAffected = s.split(":").slice(1).join(":").trim();
+    } else if (low.startsWith("previous understanding:")) {
+      previousUnderstanding = s.split(":").slice(1).join(":").trim();
+    } else if (low.startsWith("new signal:")) {
+      newSignal = s.split(":").slice(1).join(":").trim();
+    } else if (low.startsWith("recommended action:")) {
+      recommendedAction = s.split(":").slice(1).join(":").trim();
+    } else if (low.startsWith("if update_assumption")) {
+      const aMatch = s.match(/assumption:\s*([^,]+)/i);
+      const sMatch = s.match(/status:\s*(\w+)/i);
+      if (aMatch) assumptionText = aMatch[1].trim();
+      if (sMatch) assumptionStatus = sMatch[1].toLowerCase().trim();
+    }
+  }
+
+  if (!whatChanged) return null;
+
+  return {
+    whatChanged,
+    dimensionsAffected: dimensionsAffected ?? "",
+    previousUnderstanding,
+    newSignal,
+    recommendedAction: (recommendedAction as TriageInsight["recommendedAction"]) ?? "note_only",
+    assumptionText,
+    assumptionStatus,
+  };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function handleTriageInsight(supabase: any, ideaId: string, insight: TriageInsight): Promise<void> {
+  // Write journal entry
+  await supabase.from("journal_entries").insert({
+    id: crypto.randomUUID(),
+    idea_id: ideaId,
+    type: "triage_insight",
+    content: `TRIAGE INSIGHT: ${insight.whatChanged}\nDimensions: ${insight.dimensionsAffected}\nPrevious: ${insight.previousUnderstanding}\nNew signal: ${insight.newSignal}`,
+    created_at: new Date().toISOString(),
+  });
+
+  // Update kill assumption status if applicable
+  if (insight.assumptionText && insight.assumptionStatus &&
+      ["validated", "invalidated", "weakened", "strengthened"].includes(insight.assumptionStatus)) {
+    const { data } = await supabase.from("ideas").select("triage").eq("id", ideaId).single();
+    const triage = (data as any)?.triage ?? {};
+    const assumptions: any[] = triage.kill_assumptions ?? [];
+    let updated = false;
+    for (const a of assumptions) {
+      if (typeof a === "object" && (
+        insight.assumptionText.toLowerCase().includes((a.text as string).toLowerCase()) ||
+        (a.text as string).toLowerCase().includes(insight.assumptionText.toLowerCase())
+      )) {
+        a.status = insight.assumptionStatus;
+        a.status_updated_at = new Date().toISOString();
+        a.status_source = "conversation";
+        updated = true;
+        break;
+      }
+    }
+    if (updated) {
+      triage.kill_assumptions = assumptions;
+      await supabase.from("ideas").update({ triage }).eq("id", ideaId);
+    }
+  }
+
+  // Flag for retriage if recommended
+  if (insight.recommendedAction === "retriage") {
+    const { data } = await supabase.from("ideas").select("retriage_reasons").eq("id", ideaId).single();
+    const currentReasons: any[] = (data as any)?.retriage_reasons ?? [];
+    currentReasons.push({
+      reason: insight.whatChanged,
+      flagged_at: new Date().toISOString(),
+      source: "conversation",
+    });
+    await supabase.from("ideas").update({
+      retriage_pending: true,
+      retriage_reasons: currentReasons,
+    }).eq("id", ideaId);
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -116,7 +255,7 @@ export async function POST(request: NextRequest) {
     const supabase = await createClient();
 
     const [ideaRes, journalRes, summariesRes, refinementsRes] = await Promise.all([
-      supabase.from("ideas").select("*").eq("id", idea_id).single(),
+      supabase.from("ideas").select("id, raw_input, domain, state, created_at, triage, development, outcomes").eq("id", idea_id).single(),
       supabase.from("journal_entries").select("*").eq("idea_id", idea_id).order("created_at"),
       supabase.from("conversations").select("*").eq("idea_id", idea_id).not("summary", "is", null).order("created_at"),
       supabase.from("refinements").select("*").eq("idea_id", idea_id).order("created_at"),
@@ -171,7 +310,7 @@ export async function POST(request: NextRequest) {
     }
 
     const stream = await anthropic.messages.create({
-      model: "claude-sonnet-4-6",
+      model: CONVERSE_MODEL,
       max_tokens: 2048,
       system: systemPrompt,
       messages,
@@ -190,6 +329,20 @@ export async function POST(request: NextRequest) {
               controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: event.delta.text })}\n\n`));
             }
             if (event.type === "message_stop") {
+              // Detect and handle triage insight (internal mode only)
+              if (mode === "internal" && fullResponse.includes("TRIAGE INSIGHT:")) {
+                const insight = parseTriageInsight(fullResponse);
+                if (insight) {
+                  try {
+                    await handleTriageInsight(supabase, idea_id, insight);
+                    controller.enqueue(
+                      encoder.encode(`data: ${JSON.stringify({ triage_insight: insight })}\n\n`)
+                    );
+                  } catch (e) {
+                    console.error("[/api/converse] insight handling failed:", e);
+                  }
+                }
+              }
               controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true })}\n\n`));
               controller.close();
             }

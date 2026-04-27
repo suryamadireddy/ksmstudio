@@ -9,8 +9,9 @@ async function getIdea(slug: string): Promise<Idea | null> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("ideas")
-    .select("*")
-    .eq("id", slug)
+    .select("id, raw_input, domain, state, created_at, triage, development, portfolio")
+    .eq("published", true)
+    .eq("portfolio->>slug", slug)
     .single();
   return (data as Idea) ?? null;
 }
@@ -43,12 +44,7 @@ export default async function PublicIdeaPage({
   const t = idea.triage;
   const d = idea.development;
 
-  // Only show if disposition is pursue or there's a portfolio section
-  const isPublic =
-    t?.disposition === "pursue" ||
-    (idea.portfolio && Object.keys(idea.portfolio as object).length > 0);
-
-  if (!isPublic) notFound();
+  if (!idea.published || !idea.portfolio) notFound();
 
   return (
     <main className="min-h-screen bg-white">
@@ -59,6 +55,10 @@ export default async function PublicIdeaPage({
         <h1 className="mb-6 font-serif text-4xl font-normal leading-tight tracking-tight text-gray-900">
           {name}
         </h1>
+
+        {idea.portfolio?.headline && (
+          <p className="mb-6 text-xl text-gray-600">{idea.portfolio.headline}</p>
+        )}
 
         {t?.who_benefits && (
           <p className="mb-10 text-lg text-gray-500">{t.who_benefits}</p>
@@ -125,12 +125,15 @@ export default async function PublicIdeaPage({
               Key Assumptions
             </h2>
             <ul className="space-y-2">
-              {t.kill_assumptions.map((a, i) => (
-                <li key={i} className="flex gap-2 text-sm text-gray-700">
-                  <span className="mt-2 h-1 w-1 shrink-0 rounded-full bg-gray-400" />
-                  {a}
-                </li>
-              ))}
+              {t.kill_assumptions.map((a, i) => {
+                const text = typeof a === "object" ? a.text : a;
+                return (
+                  <li key={i} className="flex gap-2 text-sm text-gray-700">
+                    <span className="mt-2 h-1 w-1 shrink-0 rounded-full bg-gray-400" />
+                    {text}
+                  </li>
+                );
+              })}
             </ul>
           </section>
         )}

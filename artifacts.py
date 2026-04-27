@@ -30,7 +30,7 @@ from typing import Union
 
 import anthropic
 
-from config import ANTHROPIC_API_KEY, MODEL
+from config import ANTHROPIC_API_KEY, PIPELINE_MODEL as MODEL
 from db import get_client
 
 # ── Stage ordering ────────────────────────────────────────────────────────────
@@ -540,7 +540,11 @@ def build_prd_context(idea: dict) -> str:
         f"Confidence: {triage.get('confidence')}/5\n"
         f"Who benefits: {triage.get('who_benefits')}\n"
         f"Kill assumptions:\n"
-        + "\n".join(f"- {a}" for a in triage.get("kill_assumptions", []))
+        + "\n".join(
+            f"- {a['text']} [{a.get('status', 'untested')}]"
+            if isinstance(a, dict) else f"- {a}"
+            for a in triage.get("kill_assumptions", [])
+        )
         + f"\nReasoning: {triage.get('triage_reasoning')}\n\n"
         f"--- SHARPENING ---\n"
         f"Research synthesis:\n{dev.get('research_synthesis', '')}\n\n"
@@ -565,7 +569,11 @@ def build_mvp_context(idea: dict) -> str:
         f"Effort: {triage.get('effort_score')}/5  "
         f"Impact: {triage.get('impact_score')}/5\n"
         f"Kill assumptions:\n"
-        + "\n".join(f"- {a}" for a in triage.get("kill_assumptions", []))
+        + "\n".join(
+            f"- {a['text']} [{a.get('status', 'untested')}]"
+            if isinstance(a, dict) else f"- {a}"
+            for a in triage.get("kill_assumptions", [])
+        )
         + f"\n\n--- SHARPENING ---\n"
         f"Core hypothesis:\n{dev.get('core_hypothesis', '')}\n\n"
         f"Open questions:\n"
@@ -588,7 +596,11 @@ def build_next_steps_context(idea: dict) -> str:
         f"Effort: {triage.get('effort_score')}/5  "
         f"Time horizon: {triage.get('time_horizon')}\n"
         f"Kill assumptions:\n"
-        + "\n".join(f"- {a}" for a in triage.get("kill_assumptions", []))
+        + "\n".join(
+            f"- {a['text']} [{a.get('status', 'untested')}]"
+            if isinstance(a, dict) else f"- {a}"
+            for a in triage.get("kill_assumptions", [])
+        )
         + f"\n\n--- SHARPENING ---\n"
         f"Core hypothesis:\n{dev.get('core_hypothesis', '')}\n\n"
         f"Open questions:\n"
@@ -697,12 +709,17 @@ def stream_stage(
             if label in ("Builder Brief",)
             else {"type": "adaptive"}
         )
+        # Use top-level cache_control param, not system block array.
+        # Python SDK's messages.stream() context manager silently hangs on
+        # block array format. TypeScript SDK accepts block arrays natively;
+        # Python does not. Verified Apr 2026.
         with client.messages.stream(
             model=MODEL,
             max_tokens=max_tokens,
             thinking=thinking_config,
             system=system,
             messages=messages,
+            cache_control={"type": "ephemeral"},
         ) as stream:
             for event in stream:
                 if event.type == "content_block_delta":
@@ -747,7 +764,7 @@ def stream_stage(
 
 def fetch_idea(idea_id: str) -> dict:
     db = get_client()
-    result = db.table("ideas").select("*").eq("id", idea_id).single().execute()
+    result = db.table("ideas").select("raw_input, triage, development").eq("id", idea_id).single().execute()
     if not result.data:
         print(f"\033[31m✗ No idea found with id {idea_id}\033[0m")
         sys.exit(1)

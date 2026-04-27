@@ -6,13 +6,13 @@ export function Closing() {
     >
       <div className="mx-auto w-full max-w-6xl">
         <div className="mx-auto max-w-2xl text-center">
-          <p className="mb-6 text-xs font-medium uppercase tracking-[0.2em] text-muted-foreground">
+          <p className="mb-6 text-xs font-medium uppercase tracking-[0.2em] text-[var(--muted)]">
             Philosophy
           </p>
-          <blockquote className="font-serif text-2xl font-normal leading-relaxed tracking-tight text-foreground md:text-3xl lg:text-4xl">
+          <blockquote className="font-serif text-2xl font-normal leading-relaxed tracking-tight text-[var(--fg)] md:text-3xl lg:text-4xl">
             Building thoughtful products with clarity, structure, and taste.
           </blockquote>
-          <p className="mt-8 text-muted-foreground">
+          <p className="mt-8 text-[var(--muted)]">
             Every project begins with deep understanding and ends with actionable direction -
             grounded in research, shaped by strategy, and refined through iteration.
           </p>

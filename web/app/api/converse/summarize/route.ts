@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { NextRequest } from "next/server";
+import { CONVERSE_MODEL } from "@/lib/models";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
 
@@ -58,7 +59,7 @@ ${transcript}`;
 
     // Call Claude
     const response = await anthropic.messages.create({
-      model: "claude-sonnet-4-6",
+      model: CONVERSE_MODEL,
       max_tokens: 512,
       messages: [{ role: "user", content: prompt }],
     });

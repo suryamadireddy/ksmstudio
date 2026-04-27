@@ -1,4 +1,4 @@
-import { createClient } from "@supabase/supabase-js";
+import { createClient } from "@/lib/supabase/server";
 
 export type PublicProjectCard = {
   id: string;
@@ -9,57 +9,45 @@ export type PublicProjectCard = {
   coverImage: string;
 };
 
-function serverSupabase() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-  );
-}
-
-function ideaTitle(idea: {
-  triage: { title?: string } | null;
-  raw_input: string;
-}): string {
-  const title = idea.triage?.title;
-  if (title) return title;
-  const raw = idea.raw_input?.trim() ?? "";
-  return raw.length > 60 ? raw.slice(0, 60) + "…" : raw || "Untitled idea";
-}
-
 export async function getFeaturedPublicProjects(): Promise<PublicProjectCard[]> {
-  const supabase = serverSupabase();
-
-  const { data, error } = await supabase
+  const supabase = await createClient();
+  const { data } = await supabase
     .from("ideas")
-    .select("id, raw_input, triage, development")
-    .not("triage", "is", null)
+    .select("id, raw_input, portfolio")
+    .eq("published", true)
     .order("created_at", { ascending: false })
-    .limit(4);
+    .limit(8);
 
-  if (error) {
-    console.error("Error fetching ideas for landing page:", error);
-    return [];
-  }
+  if (!data) return [];
 
-  return (data ?? []).map((idea) => {
-    const triage = idea.triage as {
-      title?: string;
-      who_benefits?: string;
-      triage_reasoning?: string;
-    } | null;
+  return data.flatMap((row): PublicProjectCard[] => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const portfolio = row.portfolio as any;
+    if (!portfolio?.slug || !portfolio?.headline) return [];
 
+    const activeVersion = portfolio.versions?.find(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (v: any) => v.id === portfolio.active_version_id,
+    );
+
+    // Pull summary from statement section if present, else voice.summary
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const statementSection = activeVersion?.public_summary?.sections?.find(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (s: any) => s.archetype === "statement",
+    );
     const summary =
-      triage?.who_benefits && triage?.triage_reasoning
-        ? `${triage.who_benefits} — ${triage.triage_reasoning}`
-        : triage?.who_benefits ?? triage?.triage_reasoning ?? null;
+      statementSection?.content?.text ?? activeVersion?.voice?.summary ?? null;
 
-    return {
-      id: idea.id,
-      slug: idea.id,
-      title: ideaTitle({ triage, raw_input: idea.raw_input }),
-      summary,
-      rawIdea: idea.raw_input ?? null,
-      coverImage: "/file.svg", // used only by ProjectCard, not FeaturedProjects
-    };
+    return [
+      {
+        id: row.id,
+        title: portfolio.headline,
+        slug: portfolio.slug,
+        summary,
+        rawIdea: row.raw_input,
+        coverImage: "/placeholder.svg",
+      },
+    ];
   });
 }
