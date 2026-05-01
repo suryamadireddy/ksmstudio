@@ -128,6 +128,14 @@ export async function POST(request: NextRequest) {
         headers: { "Content-Type": "application/json" },
       });
     }
+    if (journalRes.error || summariesRes.error || refinementsRes.error) {
+      throw new Error(
+        journalRes.error?.message ??
+        summariesRes.error?.message ??
+        refinementsRes.error?.message ??
+        "Failed to load conversation context"
+      );
+    }
 
     const systemPrompt = buildSystemPrompt(
       ideaRes.data as Idea,
@@ -144,23 +152,29 @@ export async function POST(request: NextRequest) {
 
     // Create conversation row if it doesn't exist yet
     if (conversation_id) {
-      const { data: existingConv } = await supabase
+      const { data: existingConv, error: existingConvError } = await supabase
         .from("conversations")
         .select("id")
         .eq("id", conversation_id)
+        .eq("idea_id", idea_id)
         .single();
 
+      if (existingConvError && existingConvError.code !== "PGRST116") {
+        throw existingConvError;
+      }
+
       if (!existingConv) {
-        await supabase.from("conversations").insert({
+        const { error: insertConvError } = await supabase.from("conversations").insert({
           id: conversation_id,
           idea_id,
           context: mode === "public" ? "portfolio_public" : "internal",
           created_at: new Date().toISOString(),
         });
+        if (insertConvError) throw insertConvError;
       }
 
       // Save user message before stream starts
-      await supabase.from("messages").insert({
+      const { error: insertMessageError } = await supabase.from("messages").insert({
         id: crypto.randomUUID(),
         conversation_id,
         idea_id,
@@ -168,6 +182,7 @@ export async function POST(request: NextRequest) {
         content: message,
         created_at: new Date().toISOString(),
       });
+      if (insertMessageError) throw insertMessageError;
     }
 
     const stream = await anthropic.messages.create({

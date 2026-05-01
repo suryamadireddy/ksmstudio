@@ -9,7 +9,7 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = await createClient();
-    await supabase.from("messages").insert({
+    const { error } = await supabase.from("messages").insert({
       id: crypto.randomUUID(),
       conversation_id,
       idea_id,
@@ -17,6 +17,11 @@ export async function POST(request: NextRequest) {
       content,
       created_at: new Date().toISOString(),
     });
+
+    if (error) {
+      console.error("[/api/converse/save] insert failed", error);
+      return new Response(JSON.stringify({ error: "failed to save message" }), { status: 500 });
+    }
 
     return new Response(JSON.stringify({ ok: true }), { status: 200 });
   } catch (err: any) {

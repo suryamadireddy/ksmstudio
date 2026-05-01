@@ -232,51 +232,64 @@ export default function ConversationsPanel({
       const reader = res.body!.getReader();
       const decoder = new TextDecoder();
       let accumulated = "";
+      let pendingLine = "";
+
+      const processLine = async (line: string) => {
+        if (!line.startsWith("data: ")) return;
+        const parsed = JSON.parse(line.slice(6));
+        if (parsed.text) {
+          accumulated += parsed.text;
+          setLiveMessages((prev) => {
+            const updated = [...prev];
+            updated[updated.length - 1] = {
+              role: "idea",
+              content: accumulated,
+              streaming: true,
+            };
+            return updated;
+          });
+        }
+        if (parsed.done) {
+          setLiveMessages((prev) => {
+            const updated = [...prev];
+            updated[updated.length - 1] = {
+              role: "idea",
+              content: accumulated,
+              streaming: false,
+            };
+            return updated;
+          });
+          // Save idea response now that stream is complete
+          const saveRes = await fetch("/api/converse/save", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              conversation_id: conversationId,
+              idea_id: ideaId,
+              content: accumulated,
+            }),
+          });
+          if (!saveRes.ok) throw new Error(`Save error ${saveRes.status}`);
+        }
+        if (parsed.error) throw new Error(parsed.error);
+      };
 
       while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
-        for (const line of decoder.decode(value, { stream: true }).split("\n")) {
-          if (!line.startsWith("data: ")) continue;
-          try {
-            const parsed = JSON.parse(line.slice(6));
-            if (parsed.text) {
-              accumulated += parsed.text;
-              setLiveMessages((prev) => {
-                const updated = [...prev];
-                updated[updated.length - 1] = {
-                  role: "idea",
-                  content: accumulated,
-                  streaming: true,
-                };
-                return updated;
-              });
-            }
-            if (parsed.done) {
-              setLiveMessages((prev) => {
-                const updated = [...prev];
-                updated[updated.length - 1] = {
-                  role: "idea",
-                  content: accumulated,
-                  streaming: false,
-                };
-                return updated;
-              });
-              // Save idea response now that stream is complete
-              fetch("/api/converse/save", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  conversation_id: conversationId,
-                  idea_id: ideaId,
-                  content: accumulated,
-                }),
-              });
-            }
-            if (parsed.error) throw new Error(parsed.error);
-          } catch { /* skip malformed lines */ }
+        if (done) {
+          pendingLine += decoder.decode();
+          break;
+        }
+
+        const lines = (pendingLine + decoder.decode(value, { stream: true })).split("\n");
+        pendingLine = lines.pop() ?? "";
+
+        for (const line of lines) {
+          await processLine(line);
         }
       }
+
+      if (pendingLine) await processLine(pendingLine);
     } catch (err: any) {
       setError(err.message);
       setLiveMessages((prev) => prev.slice(0, -1));
