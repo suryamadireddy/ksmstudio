@@ -263,7 +263,7 @@ export default function ConversationsPanel({
                 return updated;
               });
               // Save idea response now that stream is complete
-              fetch("/api/converse/save", {
+              const saveRes = await fetch("/api/converse/save", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
@@ -272,9 +272,13 @@ export default function ConversationsPanel({
                   content: accumulated,
                 }),
               });
+              if (!saveRes.ok) throw new Error(`Save error ${saveRes.status}`);
             }
             if (parsed.error) throw new Error(parsed.error);
-          } catch { /* skip malformed lines */ }
+          } catch (err) {
+            if (err instanceof SyntaxError) continue;
+            throw err;
+          }
         }
       }
     } catch (err: any) {

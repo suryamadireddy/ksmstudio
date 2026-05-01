@@ -16,8 +16,9 @@ export async function POST(request: NextRequest) {
     // Fetch conversation — skip if already summarized
     const { data: conversation, error: convError } = await supabase
       .from("conversations")
-      .select("id, summary")
+      .select("id, idea_id, summary")
       .eq("id", conversation_id)
+      .eq("idea_id", idea_id)
       .single();
 
     if (convError || !conversation) {
@@ -33,6 +34,7 @@ export async function POST(request: NextRequest) {
       .from("messages")
       .select("role, content")
       .eq("conversation_id", conversation_id)
+      .eq("idea_id", idea_id)
       .order("created_at", { ascending: true });
 
     if (!messages || messages.length === 0) {
@@ -67,10 +69,16 @@ ${transcript}`;
       response.content[0].type === "text" ? response.content[0].text.trim() : "";
 
     // Save to conversations.summary
-    await supabase
+    const { error: updateError } = await supabase
       .from("conversations")
       .update({ summary })
-      .eq("id", conversation_id);
+      .eq("id", conversation_id)
+      .eq("idea_id", idea_id);
+
+    if (updateError) {
+      console.error("[/api/converse/summarize] failed to save summary", updateError);
+      return new Response(JSON.stringify({ error: "failed to save summary" }), { status: 500 });
+    }
 
     return new Response(JSON.stringify({ ok: true }), { status: 200 });
   } catch (err: any) {
