@@ -228,54 +228,69 @@ export default function ConversationsPanel({
       });
 
       if (!res.ok) throw new Error(`API error ${res.status}`);
+      if (!res.body) throw new Error("Missing response body");
 
-      const reader = res.body!.getReader();
+      const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let accumulated = "";
+      let sseBuffer = "";
+
+      const handleStreamEvent = (eventBlock: string) => {
+        for (const line of eventBlock.split(/\r?\n/)) {
+          if (!line.startsWith("data:")) continue;
+          const payload = line.slice(5).trimStart();
+          if (!payload) continue;
+
+          const parsed = JSON.parse(payload) as {
+            text?: string;
+            done?: boolean;
+            error?: string;
+          };
+
+          if (parsed.error) throw new Error(parsed.error);
+          if (parsed.text) {
+            accumulated += parsed.text;
+            setLiveMessages((prev) => {
+              const updated = [...prev];
+              updated[updated.length - 1] = {
+                role: "idea",
+                content: accumulated,
+                streaming: true,
+              };
+              return updated;
+            });
+          }
+          if (parsed.done) {
+            setLiveMessages((prev) => {
+              const updated = [...prev];
+              updated[updated.length - 1] = {
+                role: "idea",
+                content: accumulated,
+                streaming: false,
+              };
+              return updated;
+            });
+          }
+        }
+      };
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        for (const line of decoder.decode(value, { stream: true }).split("\n")) {
-          if (!line.startsWith("data: ")) continue;
-          try {
-            const parsed = JSON.parse(line.slice(6));
-            if (parsed.text) {
-              accumulated += parsed.text;
-              setLiveMessages((prev) => {
-                const updated = [...prev];
-                updated[updated.length - 1] = {
-                  role: "idea",
-                  content: accumulated,
-                  streaming: true,
-                };
-                return updated;
-              });
-            }
-            if (parsed.done) {
-              setLiveMessages((prev) => {
-                const updated = [...prev];
-                updated[updated.length - 1] = {
-                  role: "idea",
-                  content: accumulated,
-                  streaming: false,
-                };
-                return updated;
-              });
-              // Save idea response now that stream is complete
-              fetch("/api/converse/save", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  conversation_id: conversationId,
-                  idea_id: ideaId,
-                  content: accumulated,
-                }),
-              });
-            }
-            if (parsed.error) throw new Error(parsed.error);
-          } catch { /* skip malformed lines */ }
+
+        sseBuffer += decoder.decode(value, { stream: true });
+        let delimiter = /\r?\n\r?\n/.exec(sseBuffer);
+        while (delimiter) {
+          const eventBlock = sseBuffer.slice(0, delimiter.index);
+          sseBuffer = sseBuffer.slice(delimiter.index + delimiter[0].length);
+          handleStreamEvent(eventBlock);
+          delimiter = /\r?\n\r?\n/.exec(sseBuffer);
         }
+      }
+
+      sseBuffer += decoder.decode();
+      if (sseBuffer.trim()) {
+        handleStreamEvent(sseBuffer);
       }
     } catch (err: any) {
       setError(err.message);

@@ -129,6 +129,15 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    if (journalRes.error || summariesRes.error || refinementsRes.error) {
+      throw new Error(
+        journalRes.error?.message ??
+        summariesRes.error?.message ??
+        refinementsRes.error?.message ??
+        "Failed to load conversation context"
+      );
+    }
+
     const systemPrompt = buildSystemPrompt(
       ideaRes.data as Idea,
       (journalRes.data ?? []) as JournalEntry[],
@@ -144,23 +153,38 @@ export async function POST(request: NextRequest) {
 
     // Create conversation row if it doesn't exist yet
     if (conversation_id) {
-      const { data: existingConv } = await supabase
+      const { data: existingConv, error: existingConvError } = await supabase
         .from("conversations")
-        .select("id")
+        .select("id, idea_id")
         .eq("id", conversation_id)
-        .single();
+        .maybeSingle();
+
+      if (existingConvError) {
+        throw new Error(existingConvError.message);
+      }
+
+      if (existingConv && existingConv.idea_id !== idea_id) {
+        return new Response(JSON.stringify({ error: "Conversation does not belong to idea" }), {
+          status: 403,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
 
       if (!existingConv) {
-        await supabase.from("conversations").insert({
+        const { error: createConversationError } = await supabase.from("conversations").insert({
           id: conversation_id,
           idea_id,
           context: mode === "public" ? "portfolio_public" : "internal",
           created_at: new Date().toISOString(),
         });
+
+        if (createConversationError) {
+          throw new Error(createConversationError.message);
+        }
       }
 
       // Save user message before stream starts
-      await supabase.from("messages").insert({
+      const { error: userMessageError } = await supabase.from("messages").insert({
         id: crypto.randomUUID(),
         conversation_id,
         idea_id,
@@ -168,6 +192,10 @@ export async function POST(request: NextRequest) {
         content: message,
         created_at: new Date().toISOString(),
       });
+
+      if (userMessageError) {
+        throw new Error(userMessageError.message);
+      }
     }
 
     const stream = await anthropic.messages.create({
@@ -190,6 +218,20 @@ export async function POST(request: NextRequest) {
               controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: event.delta.text })}\n\n`));
             }
             if (event.type === "message_stop") {
+              if (conversation_id && fullResponse) {
+                const { error: ideaMessageError } = await supabase.from("messages").insert({
+                  id: crypto.randomUUID(),
+                  conversation_id,
+                  idea_id,
+                  role: "idea",
+                  content: fullResponse,
+                  created_at: new Date().toISOString(),
+                });
+
+                if (ideaMessageError) {
+                  throw new Error(ideaMessageError.message);
+                }
+              }
               controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true })}\n\n`));
               controller.close();
             }
