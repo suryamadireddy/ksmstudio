@@ -168,8 +168,10 @@ export default function ConversationsPanel({
   useEffect(() => {
     const messagesByConv: Record<string, Message[]> = {};
     for (const m of messages) {
-      if (!messagesByConv[m.conversation_id]) messagesByConv[m.conversation_id] = [];
-      messagesByConv[m.conversation_id].push(m);
+      const convId = m.conversation_id;
+      if (!convId) continue;
+      if (!messagesByConv[convId]) messagesByConv[convId] = [];
+      messagesByConv[convId].push(m);
     }
     for (const conv of conversations) {
       if (!conv.summary && messagesByConv[conv.id]?.length > 0) {
