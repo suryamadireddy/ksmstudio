@@ -18,7 +18,8 @@ export async function POST(request: NextRequest) {
       .from("conversations")
       .select("id, summary")
       .eq("id", conversation_id)
-      .single();
+      .eq("idea_id", idea_id)
+      .maybeSingle();
 
     if (convError || !conversation) {
       return new Response(JSON.stringify({ error: "conversation not found" }), { status: 404 });
@@ -29,11 +30,16 @@ export async function POST(request: NextRequest) {
     }
 
     // Fetch messages
-    const { data: messages } = await supabase
+    const { data: messages, error: messagesError } = await supabase
       .from("messages")
       .select("role, content")
       .eq("conversation_id", conversation_id)
+      .eq("idea_id", idea_id)
       .order("created_at", { ascending: true });
+
+    if (messagesError) {
+      return new Response(JSON.stringify({ error: "could not load messages" }), { status: 500 });
+    }
 
     if (!messages || messages.length === 0) {
       return new Response(JSON.stringify({ ok: true, skipped: true }), { status: 200 });
@@ -63,14 +69,22 @@ ${transcript}`;
       messages: [{ role: "user", content: prompt }],
     });
 
-    const summary =
-      response.content[0].type === "text" ? response.content[0].text.trim() : "";
+    const textBlock = response.content.find((block) => block.type === "text");
+    const summary = textBlock?.type === "text" ? textBlock.text.trim() : "";
+    if (!summary) {
+      return new Response(JSON.stringify({ error: "summary generation failed" }), { status: 502 });
+    }
 
     // Save to conversations.summary
-    await supabase
+    const { error: updateError } = await supabase
       .from("conversations")
       .update({ summary })
-      .eq("id", conversation_id);
+      .eq("id", conversation_id)
+      .eq("idea_id", idea_id);
+
+    if (updateError) {
+      return new Response(JSON.stringify({ error: "could not save summary" }), { status: 500 });
+    }
 
     return new Response(JSON.stringify({ ok: true }), { status: 200 });
   } catch (err: any) {
