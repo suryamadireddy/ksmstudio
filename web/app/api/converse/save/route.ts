@@ -9,7 +9,35 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = await createClient();
-    await supabase.from("messages").insert({
+    const { data: conversation, error: conversationError } = await supabase
+      .from("conversations")
+      .select("id")
+      .eq("id", conversation_id)
+      .eq("idea_id", idea_id)
+      .maybeSingle();
+
+    if (conversationError || !conversation) {
+      return new Response(JSON.stringify({ error: "conversation not found" }), { status: 404 });
+    }
+
+    const { data: existingMessage, error: existingMessageError } = await supabase
+      .from("messages")
+      .select("id")
+      .eq("conversation_id", conversation_id)
+      .eq("idea_id", idea_id)
+      .eq("role", "idea")
+      .eq("content", content)
+      .maybeSingle();
+
+    if (existingMessageError) {
+      return new Response(JSON.stringify({ error: "could not check saved message" }), { status: 500 });
+    }
+
+    if (existingMessage) {
+      return new Response(JSON.stringify({ ok: true, skipped: true }), { status: 200 });
+    }
+
+    const { error: insertError } = await supabase.from("messages").insert({
       id: crypto.randomUUID(),
       conversation_id,
       idea_id,
@@ -17,6 +45,10 @@ export async function POST(request: NextRequest) {
       content,
       created_at: new Date().toISOString(),
     });
+
+    if (insertError) {
+      return new Response(JSON.stringify({ error: "could not save message" }), { status: 500 });
+    }
 
     return new Response(JSON.stringify({ ok: true }), { status: 200 });
   } catch (err: any) {

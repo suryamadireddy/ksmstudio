@@ -5,6 +5,17 @@ import type { Idea, JournalEntry, Conversation, Refinement } from "@/lib/types";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
 
+function jsonResponse(body: unknown, status: number) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+function streamEvent(payload: unknown) {
+  return `data: ${JSON.stringify(payload)}\n\n`;
+}
+
 function buildSystemPrompt(
   idea: Idea,
   journal: JournalEntry[],
@@ -105,12 +116,10 @@ Behavioral rules:
 export async function POST(request: NextRequest) {
   try {
     const { idea_id, message, history = [], conversation_id, mode = "internal" } = await request.json();
+    const chatMode = mode === "public" ? "public" : "internal";
 
     if (!idea_id || !message) {
-      return new Response(JSON.stringify({ error: "idea_id and message required" }), {
-        status: 400,
-        headers: { "Content-Type": "application/json" },
-      });
+      return jsonResponse({ error: "idea_id and message required" }, 400);
     }
 
     const supabase = await createClient();
@@ -123,10 +132,7 @@ export async function POST(request: NextRequest) {
     ]);
 
     if (!ideaRes.data) {
-      return new Response(JSON.stringify({ error: "Idea not found" }), {
-        status: 404,
-        headers: { "Content-Type": "application/json" },
-      });
+      return jsonResponse({ error: "Idea not found" }, 404);
     }
 
     const systemPrompt = buildSystemPrompt(
@@ -134,7 +140,7 @@ export async function POST(request: NextRequest) {
       (journalRes.data ?? []) as JournalEntry[],
       (summariesRes.data ?? []) as Conversation[],
       (refinementsRes.data ?? []) as Refinement[],
-      mode
+      chatMode
     );
 
     const messages = [
@@ -144,23 +150,35 @@ export async function POST(request: NextRequest) {
 
     // Create conversation row if it doesn't exist yet
     if (conversation_id) {
-      const { data: existingConv } = await supabase
+      const { data: existingConv, error: existingConvError } = await supabase
         .from("conversations")
-        .select("id")
+        .select("id, idea_id")
         .eq("id", conversation_id)
-        .single();
+        .maybeSingle();
+
+      if (existingConvError) {
+        return jsonResponse({ error: "Could not load conversation" }, 500);
+      }
+
+      if (existingConv && existingConv.idea_id !== idea_id) {
+        return jsonResponse({ error: "Conversation does not belong to idea" }, 400);
+      }
 
       if (!existingConv) {
-        await supabase.from("conversations").insert({
+        const { error: createConversationError } = await supabase.from("conversations").insert({
           id: conversation_id,
           idea_id,
-          context: mode === "public" ? "portfolio_public" : "internal",
+          context: chatMode === "public" ? "portfolio_public" : "internal",
           created_at: new Date().toISOString(),
         });
+
+        if (createConversationError) {
+          return jsonResponse({ error: "Could not create conversation" }, 500);
+        }
       }
 
       // Save user message before stream starts
-      await supabase.from("messages").insert({
+      const { error: userMessageError } = await supabase.from("messages").insert({
         id: crypto.randomUUID(),
         conversation_id,
         idea_id,
@@ -168,6 +186,10 @@ export async function POST(request: NextRequest) {
         content: message,
         created_at: new Date().toISOString(),
       });
+
+      if (userMessageError) {
+        return jsonResponse({ error: "Could not save user message" }, 500);
+      }
     }
 
     const stream = await anthropic.messages.create({
@@ -180,23 +202,69 @@ export async function POST(request: NextRequest) {
 
     let fullResponse = "";
     const encoder = new TextEncoder();
+    let savedIdeaResponse = false;
+    const saveIdeaResponse = async () => {
+      if (!conversation_id || !fullResponse || savedIdeaResponse) return null;
+
+      const { error } = await supabase.from("messages").insert({
+        id: crypto.randomUUID(),
+        conversation_id,
+        idea_id,
+        role: "idea",
+        content: fullResponse,
+        created_at: new Date().toISOString(),
+      });
+
+      if (!error) savedIdeaResponse = true;
+      return error;
+    };
 
     const readable = new ReadableStream({
       async start(controller) {
+        let closed = false;
+        const close = () => {
+          if (!closed) {
+            closed = true;
+            controller.close();
+          }
+        };
+        const send = (payload: unknown) => {
+          controller.enqueue(encoder.encode(streamEvent(payload)));
+        };
+
         try {
           for await (const event of stream) {
             if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
               fullResponse += event.delta.text;
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: event.delta.text })}\n\n`));
+              send({ text: event.delta.text });
             }
             if (event.type === "message_stop") {
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true })}\n\n`));
-              controller.close();
+              const ideaMessageError = await saveIdeaResponse();
+              if (ideaMessageError) {
+                send({ error: "Could not save idea response" });
+                close();
+                return;
+              }
+
+              send({ done: true });
+              close();
+              return;
             }
           }
-        } catch {
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: "Stream error" })}\n\n`));
-          controller.close();
+
+          const ideaMessageError = await saveIdeaResponse();
+          if (ideaMessageError) {
+            send({ error: "Could not save idea response" });
+            close();
+            return;
+          }
+
+          send({ done: true });
+          close();
+        } catch (error) {
+          console.error("[/api/converse stream]", error);
+          send({ error: "Stream error" });
+          close();
         }
       },
     });
@@ -210,9 +278,6 @@ export async function POST(request: NextRequest) {
     });
   } catch (err: any) {
     console.error("[/api/converse]", err);
-    return new Response(JSON.stringify({ error: err.message }), {
-      status: 500,
-      headers: { "Content-Type": "application/json" },
-    });
+    return jsonResponse({ error: err.message }, 500);
   }
 }
