@@ -239,43 +239,37 @@ export default function ConversationsPanel({
         if (done) break;
         for (const line of decoder.decode(value, { stream: true }).split("\n")) {
           if (!line.startsWith("data: ")) continue;
+          let parsed: { text?: string; done?: boolean; error?: string };
           try {
-            const parsed = JSON.parse(line.slice(6));
-            if (parsed.text) {
-              accumulated += parsed.text;
-              setLiveMessages((prev) => {
-                const updated = [...prev];
-                updated[updated.length - 1] = {
-                  role: "idea",
-                  content: accumulated,
-                  streaming: true,
-                };
-                return updated;
-              });
-            }
-            if (parsed.done) {
-              setLiveMessages((prev) => {
-                const updated = [...prev];
-                updated[updated.length - 1] = {
-                  role: "idea",
-                  content: accumulated,
-                  streaming: false,
-                };
-                return updated;
-              });
-              // Save idea response now that stream is complete
-              fetch("/api/converse/save", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  conversation_id: conversationId,
-                  idea_id: ideaId,
-                  content: accumulated,
-                }),
-              });
-            }
-            if (parsed.error) throw new Error(parsed.error);
-          } catch { /* skip malformed lines */ }
+            parsed = JSON.parse(line.slice(6));
+          } catch {
+            continue;
+          }
+
+          if (parsed.error) throw new Error(parsed.error);
+          if (parsed.text) {
+            accumulated += parsed.text;
+            setLiveMessages((prev) => {
+              const updated = [...prev];
+              updated[updated.length - 1] = {
+                role: "idea",
+                content: accumulated,
+                streaming: true,
+              };
+              return updated;
+            });
+          }
+          if (parsed.done) {
+            setLiveMessages((prev) => {
+              const updated = [...prev];
+              updated[updated.length - 1] = {
+                role: "idea",
+                content: accumulated,
+                streaming: false,
+              };
+              return updated;
+            });
+          }
         }
       }
     } catch (err: any) {
