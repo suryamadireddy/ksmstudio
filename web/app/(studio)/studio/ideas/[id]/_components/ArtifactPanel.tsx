@@ -1,4 +1,4 @@
-import type { Idea } from "@/lib/types";
+import type { Idea, Persona } from "@/lib/types";
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -42,19 +42,24 @@ const PRIORITY_COLOR: Record<string, string> = {
   wont: "var(--studio-red)",
 };
 
+function parsePersonas(raw: unknown): Persona[] {
+  if (Array.isArray(raw)) return raw as Persona[];
+  if (typeof raw !== "string") return [];
+
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as Persona[]) : [];
+  } catch {
+    return [];
+  }
+}
+
 export default function ArtifactPanel({ idea }: { idea: Idea }) {
   const d = idea.development;
   const prd = d?.prd;
   const mvp = d?.mvp_scope;
   const next = d?.next_steps;
-  const personas = (() => {
-    const raw = d?.personas;
-    if (Array.isArray(raw)) return raw;
-    if (typeof raw === "string") {
-      try { return JSON.parse(raw); } catch { return []; }
-    }
-    return [];
-  })();
+  const personas = parsePersonas(d?.personas);
 
   if (!prd && !mvp && !next && !personas.length) {
     return (
