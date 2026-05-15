@@ -168,6 +168,7 @@ export default function ConversationsPanel({
   useEffect(() => {
     const messagesByConv: Record<string, Message[]> = {};
     for (const m of messages) {
+      if (!m.conversation_id) continue;
       if (!messagesByConv[m.conversation_id]) messagesByConv[m.conversation_id] = [];
       messagesByConv[m.conversation_id].push(m);
     }
@@ -232,51 +233,56 @@ export default function ConversationsPanel({
       const reader = res.body!.getReader();
       const decoder = new TextDecoder();
       let accumulated = "";
+      let buffer = "";
+      let completed = false;
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        for (const line of decoder.decode(value, { stream: true }).split("\n")) {
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
           if (!line.startsWith("data: ")) continue;
+          let parsed: { text?: string; done?: boolean; error?: string };
           try {
-            const parsed = JSON.parse(line.slice(6));
-            if (parsed.text) {
-              accumulated += parsed.text;
-              setLiveMessages((prev) => {
-                const updated = [...prev];
-                updated[updated.length - 1] = {
-                  role: "idea",
-                  content: accumulated,
-                  streaming: true,
-                };
-                return updated;
-              });
-            }
-            if (parsed.done) {
-              setLiveMessages((prev) => {
-                const updated = [...prev];
-                updated[updated.length - 1] = {
-                  role: "idea",
-                  content: accumulated,
-                  streaming: false,
-                };
-                return updated;
-              });
-              // Save idea response now that stream is complete
-              fetch("/api/converse/save", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  conversation_id: conversationId,
-                  idea_id: ideaId,
-                  content: accumulated,
-                }),
-              });
-            }
-            if (parsed.error) throw new Error(parsed.error);
-          } catch { /* skip malformed lines */ }
+            parsed = JSON.parse(line.slice(6));
+          } catch {
+            continue;
+          }
+
+          if (parsed.error) throw new Error(parsed.error);
+
+          if (parsed.text) {
+            accumulated += parsed.text;
+            setLiveMessages((prev) => {
+              const updated = [...prev];
+              updated[updated.length - 1] = {
+                role: "idea",
+                content: accumulated,
+                streaming: true,
+              };
+              return updated;
+            });
+          }
+
+          if (parsed.done) {
+            completed = true;
+            setLiveMessages((prev) => {
+              const updated = [...prev];
+              updated[updated.length - 1] = {
+                role: "idea",
+                content: accumulated,
+                streaming: false,
+              };
+              return updated;
+            });
+          }
         }
       }
+
+      if (!completed) throw new Error("Stream ended unexpectedly");
     } catch (err: any) {
       setError(err.message);
       setLiveMessages((prev) => prev.slice(0, -1));

@@ -1,4 +1,4 @@
-import type { Idea } from "@/lib/types";
+import type { Idea, Persona } from "@/lib/types";
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -47,7 +47,7 @@ export default function ArtifactPanel({ idea }: { idea: Idea }) {
   const prd = d?.prd;
   const mvp = d?.mvp_scope;
   const next = d?.next_steps;
-  const personas = (() => {
+  const personas: Persona[] = (() => {
     const raw = d?.personas;
     if (Array.isArray(raw)) return raw;
     if (typeof raw === "string") {

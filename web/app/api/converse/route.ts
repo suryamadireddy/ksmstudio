@@ -4,6 +4,14 @@ import { NextRequest } from "next/server";
 import type { Idea, JournalEntry, Conversation, Refinement } from "@/lib/types";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
+const jsonHeaders = { "Content-Type": "application/json" };
+
+function jsonError(message: string, status: number) {
+  return new Response(JSON.stringify({ error: message }), {
+    status,
+    headers: jsonHeaders,
+  });
+}
 
 function buildSystemPrompt(
   idea: Idea,
@@ -107,10 +115,7 @@ export async function POST(request: NextRequest) {
     const { idea_id, message, history = [], conversation_id, mode = "internal" } = await request.json();
 
     if (!idea_id || !message) {
-      return new Response(JSON.stringify({ error: "idea_id and message required" }), {
-        status: 400,
-        headers: { "Content-Type": "application/json" },
-      });
+      return jsonError("idea_id and message required", 400);
     }
 
     const supabase = await createClient();
@@ -122,11 +127,8 @@ export async function POST(request: NextRequest) {
       supabase.from("refinements").select("*").eq("idea_id", idea_id).order("created_at"),
     ]);
 
-    if (!ideaRes.data) {
-      return new Response(JSON.stringify({ error: "Idea not found" }), {
-        status: 404,
-        headers: { "Content-Type": "application/json" },
-      });
+    if (ideaRes.error || !ideaRes.data) {
+      return jsonError("Idea not found", 404);
     }
 
     const systemPrompt = buildSystemPrompt(
@@ -144,23 +146,34 @@ export async function POST(request: NextRequest) {
 
     // Create conversation row if it doesn't exist yet
     if (conversation_id) {
-      const { data: existingConv } = await supabase
+      const { data: existingConv, error: existingConvError } = await supabase
         .from("conversations")
         .select("id")
         .eq("id", conversation_id)
-        .single();
+        .eq("idea_id", idea_id)
+        .maybeSingle();
+
+      if (existingConvError) {
+        console.error("[/api/converse] conversation lookup failed", existingConvError);
+        return jsonError("Failed to prepare conversation", 500);
+      }
 
       if (!existingConv) {
-        await supabase.from("conversations").insert({
+        const { error: conversationError } = await supabase.from("conversations").insert({
           id: conversation_id,
           idea_id,
           context: mode === "public" ? "portfolio_public" : "internal",
           created_at: new Date().toISOString(),
         });
+
+        if (conversationError) {
+          console.error("[/api/converse] conversation insert failed", conversationError);
+          return jsonError("Failed to create conversation", 500);
+        }
       }
 
       // Save user message before stream starts
-      await supabase.from("messages").insert({
+      const { error: userMessageError } = await supabase.from("messages").insert({
         id: crypto.randomUUID(),
         conversation_id,
         idea_id,
@@ -168,6 +181,11 @@ export async function POST(request: NextRequest) {
         content: message,
         created_at: new Date().toISOString(),
       });
+
+      if (userMessageError) {
+        console.error("[/api/converse] user message insert failed", userMessageError);
+        return jsonError("Failed to save user message", 500);
+      }
     }
 
     const stream = await anthropic.messages.create({
@@ -183,20 +201,54 @@ export async function POST(request: NextRequest) {
 
     const readable = new ReadableStream({
       async start(controller) {
+        let closed = false;
+        const sendEvent = (payload: unknown) => {
+          if (!closed) {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
+          }
+        };
+        const close = () => {
+          if (!closed) {
+            closed = true;
+            controller.close();
+          }
+        };
+
         try {
           for await (const event of stream) {
             if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
               fullResponse += event.delta.text;
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: event.delta.text })}\n\n`));
+              sendEvent({ text: event.delta.text });
             }
             if (event.type === "message_stop") {
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true })}\n\n`));
-              controller.close();
+              break;
             }
           }
-        } catch {
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: "Stream error" })}\n\n`));
-          controller.close();
+
+          if (conversation_id && fullResponse) {
+            const { error: ideaMessageError } = await supabase.from("messages").insert({
+              id: crypto.randomUUID(),
+              conversation_id,
+              idea_id,
+              role: "idea",
+              content: fullResponse,
+              created_at: new Date().toISOString(),
+            });
+
+            if (ideaMessageError) {
+              console.error("[/api/converse] idea message insert failed", ideaMessageError);
+              sendEvent({ error: "Failed to save response" });
+              close();
+              return;
+            }
+          }
+
+          sendEvent({ done: true });
+          close();
+        } catch (err) {
+          console.error("[/api/converse] stream failed", err);
+          sendEvent({ error: "Stream error" });
+          close();
         }
       },
     });
@@ -210,9 +262,6 @@ export async function POST(request: NextRequest) {
     });
   } catch (err: any) {
     console.error("[/api/converse]", err);
-    return new Response(JSON.stringify({ error: err.message }), {
-      status: 500,
-      headers: { "Content-Type": "application/json" },
-    });
+    return jsonError(err.message, 500);
   }
 }
