@@ -168,6 +168,7 @@ export default function ConversationsPanel({
   useEffect(() => {
     const messagesByConv: Record<string, Message[]> = {};
     for (const m of messages) {
+      if (!m.conversation_id) continue;
       if (!messagesByConv[m.conversation_id]) messagesByConv[m.conversation_id] = [];
       messagesByConv[m.conversation_id].push(m);
     }
@@ -262,12 +263,18 @@ export default function ConversationsPanel({
                 };
                 return updated;
               });
+              // Save idea response now that stream is complete
+              fetch("/api/converse/save", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  conversation_id: conversationId,
+                  idea_id: ideaId,
+                  content: accumulated,
+                }),
+              });
             }
-            if (parsed.error) {
-              setError(parsed.error);
-              setLiveMessages((prev) => prev.slice(0, -1));
-              return;
-            }
+            if (parsed.error) throw new Error(parsed.error);
           } catch { /* skip malformed lines */ }
         }
       }
