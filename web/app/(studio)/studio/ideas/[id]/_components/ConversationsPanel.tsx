@@ -227,54 +227,86 @@ export default function ConversationsPanel({
         }),
       });
 
-      if (!res.ok) throw new Error(`API error ${res.status}`);
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error ?? `API error ${res.status}`);
+      }
+      if (!res.body) throw new Error("API response did not include a stream");
 
       const reader = res.body!.getReader();
       const decoder = new TextDecoder();
       let accumulated = "";
+      let pending = "";
+
+      const processLine = async (line: string) => {
+        if (!line.startsWith("data: ")) return;
+
+        let parsed: { text?: string; done?: boolean; error?: string };
+        try {
+          parsed = JSON.parse(line.slice(6));
+        } catch {
+          return;
+        }
+
+        if (parsed.text) {
+          accumulated += parsed.text;
+          setLiveMessages((prev) => {
+            const updated = [...prev];
+            updated[updated.length - 1] = {
+              role: "idea",
+              content: accumulated,
+              streaming: true,
+            };
+            return updated;
+          });
+        }
+
+        if (parsed.error) throw new Error(parsed.error);
+
+        if (parsed.done) {
+          setLiveMessages((prev) => {
+            const updated = [...prev];
+            updated[updated.length - 1] = {
+              role: "idea",
+              content: accumulated,
+              streaming: false,
+            };
+            return updated;
+          });
+
+          const saveRes = await fetch("/api/converse/save", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              conversation_id: conversationId,
+              idea_id: ideaId,
+              content: accumulated,
+            }),
+          });
+
+          if (!saveRes.ok) {
+            const body = await saveRes.json().catch(() => null);
+            throw new Error(body?.error ?? `Save error ${saveRes.status}`);
+          }
+        }
+      };
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        for (const line of decoder.decode(value, { stream: true }).split("\n")) {
-          if (!line.startsWith("data: ")) continue;
-          try {
-            const parsed = JSON.parse(line.slice(6));
-            if (parsed.text) {
-              accumulated += parsed.text;
-              setLiveMessages((prev) => {
-                const updated = [...prev];
-                updated[updated.length - 1] = {
-                  role: "idea",
-                  content: accumulated,
-                  streaming: true,
-                };
-                return updated;
-              });
-            }
-            if (parsed.done) {
-              setLiveMessages((prev) => {
-                const updated = [...prev];
-                updated[updated.length - 1] = {
-                  role: "idea",
-                  content: accumulated,
-                  streaming: false,
-                };
-                return updated;
-              });
-              // Save idea response now that stream is complete
-              fetch("/api/converse/save", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  conversation_id: conversationId,
-                  idea_id: ideaId,
-                  content: accumulated,
-                }),
-              });
-            }
-            if (parsed.error) throw new Error(parsed.error);
-          } catch { /* skip malformed lines */ }
+        pending += decoder.decode(value, { stream: true });
+        const lines = pending.split("\n");
+        pending = lines.pop() ?? "";
+
+        for (const line of lines) {
+          await processLine(line);
+        }
+      }
+
+      pending += decoder.decode();
+      if (pending) {
+        for (const line of pending.split("\n")) {
+          await processLine(line);
         }
       }
     } catch (err: any) {
