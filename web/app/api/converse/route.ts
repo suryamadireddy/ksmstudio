@@ -114,6 +114,17 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = await createClient();
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
+
+    if (userError || !user) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
 
     const [ideaRes, journalRes, summariesRes, refinementsRes] = await Promise.all([
       supabase.from("ideas").select("*").eq("id", idea_id).single(),
@@ -144,23 +155,38 @@ export async function POST(request: NextRequest) {
 
     // Create conversation row if it doesn't exist yet
     if (conversation_id) {
-      const { data: existingConv } = await supabase
+      const { data: existingConv, error: existingConvError } = await supabase
         .from("conversations")
-        .select("id")
+        .select("id, idea_id")
         .eq("id", conversation_id)
-        .single();
+        .maybeSingle();
+
+      if (existingConvError) {
+        throw existingConvError;
+      }
+
+      if (existingConv && existingConv.idea_id !== idea_id) {
+        return new Response(JSON.stringify({ error: "conversation does not belong to idea" }), {
+          status: 409,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
 
       if (!existingConv) {
-        await supabase.from("conversations").insert({
+        const { error: insertConversationError } = await supabase.from("conversations").insert({
           id: conversation_id,
           idea_id,
           context: mode === "public" ? "portfolio_public" : "internal",
           created_at: new Date().toISOString(),
         });
+
+        if (insertConversationError) {
+          throw insertConversationError;
+        }
       }
 
       // Save user message before stream starts
-      await supabase.from("messages").insert({
+      const { error: insertUserMessageError } = await supabase.from("messages").insert({
         id: crypto.randomUUID(),
         conversation_id,
         idea_id,
@@ -168,6 +194,10 @@ export async function POST(request: NextRequest) {
         content: message,
         created_at: new Date().toISOString(),
       });
+
+      if (insertUserMessageError) {
+        throw insertUserMessageError;
+      }
     }
 
     const stream = await anthropic.messages.create({
@@ -190,11 +220,26 @@ export async function POST(request: NextRequest) {
               controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: event.delta.text })}\n\n`));
             }
             if (event.type === "message_stop") {
+              if (conversation_id && fullResponse) {
+                const { error: insertIdeaMessageError } = await supabase.from("messages").insert({
+                  id: crypto.randomUUID(),
+                  conversation_id,
+                  idea_id,
+                  role: "idea",
+                  content: fullResponse,
+                  created_at: new Date().toISOString(),
+                });
+
+                if (insertIdeaMessageError) {
+                  throw insertIdeaMessageError;
+                }
+              }
               controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true })}\n\n`));
               controller.close();
             }
           }
-        } catch {
+        } catch (streamError) {
+          console.error("[/api/converse stream]", streamError);
           controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: "Stream error" })}\n\n`));
           controller.close();
         }

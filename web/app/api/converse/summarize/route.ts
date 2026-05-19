@@ -12,12 +12,21 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = await createClient();
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
+
+    if (userError || !user) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
+    }
 
     // Fetch conversation — skip if already summarized
     const { data: conversation, error: convError } = await supabase
       .from("conversations")
-      .select("id, summary")
+      .select("id, idea_id, summary")
       .eq("id", conversation_id)
+      .eq("idea_id", idea_id)
       .single();
 
     if (convError || !conversation) {
@@ -33,6 +42,7 @@ export async function POST(request: NextRequest) {
       .from("messages")
       .select("role, content")
       .eq("conversation_id", conversation_id)
+      .eq("idea_id", idea_id)
       .order("created_at", { ascending: true });
 
     if (!messages || messages.length === 0) {
@@ -63,14 +73,23 @@ ${transcript}`;
       messages: [{ role: "user", content: prompt }],
     });
 
-    const summary =
-      response.content[0].type === "text" ? response.content[0].text.trim() : "";
+    const textBlock = response.content.find((block) => block.type === "text");
+    const summary = textBlock?.type === "text" ? textBlock.text.trim() : "";
+
+    if (!summary) {
+      return new Response(JSON.stringify({ error: "summary generation failed" }), { status: 502 });
+    }
 
     // Save to conversations.summary
-    await supabase
+    const { error: updateError } = await supabase
       .from("conversations")
       .update({ summary })
-      .eq("id", conversation_id);
+      .eq("id", conversation_id)
+      .eq("idea_id", idea_id);
+
+    if (updateError) {
+      throw updateError;
+    }
 
     return new Response(JSON.stringify({ ok: true }), { status: 200 });
   } catch (err: any) {
