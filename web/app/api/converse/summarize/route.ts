@@ -18,6 +18,7 @@ export async function POST(request: NextRequest) {
       .from("conversations")
       .select("id, summary")
       .eq("id", conversation_id)
+      .eq("idea_id", idea_id)
       .single();
 
     if (convError || !conversation) {
@@ -29,14 +30,23 @@ export async function POST(request: NextRequest) {
     }
 
     // Fetch messages
-    const { data: messages } = await supabase
+    const { data: messages, error: messagesError } = await supabase
       .from("messages")
       .select("role, content")
       .eq("conversation_id", conversation_id)
       .order("created_at", { ascending: true });
 
+    if (messagesError) {
+      return new Response(JSON.stringify({ error: messagesError.message }), { status: 500 });
+    }
+
     if (!messages || messages.length === 0) {
       return new Response(JSON.stringify({ ok: true, skipped: true }), { status: 200 });
+    }
+
+    const lastMessage = messages[messages.length - 1];
+    if (lastMessage.role !== "idea" && lastMessage.role !== "assistant") {
+      return new Response(JSON.stringify({ ok: true, skipped: true, reason: "incomplete" }), { status: 200 });
     }
 
     // Build prompt
@@ -67,10 +77,14 @@ ${transcript}`;
       response.content[0].type === "text" ? response.content[0].text.trim() : "";
 
     // Save to conversations.summary
-    await supabase
+    const { error: summaryError } = await supabase
       .from("conversations")
       .update({ summary })
       .eq("id", conversation_id);
+
+    if (summaryError) {
+      return new Response(JSON.stringify({ error: summaryError.message }), { status: 500 });
+    }
 
     return new Response(JSON.stringify({ ok: true }), { status: 200 });
   } catch (err: any) {

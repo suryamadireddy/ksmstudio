@@ -144,23 +144,37 @@ export async function POST(request: NextRequest) {
 
     // Create conversation row if it doesn't exist yet
     if (conversation_id) {
-      const { data: existingConv } = await supabase
+      const { data: existingConv, error: existingConvError } = await supabase
         .from("conversations")
         .select("id")
         .eq("id", conversation_id)
-        .single();
+        .maybeSingle();
+
+      if (existingConvError) {
+        return new Response(JSON.stringify({ error: existingConvError.message }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
 
       if (!existingConv) {
-        await supabase.from("conversations").insert({
+        const { error: conversationInsertError } = await supabase.from("conversations").insert({
           id: conversation_id,
           idea_id,
           context: mode === "public" ? "portfolio_public" : "internal",
           created_at: new Date().toISOString(),
         });
+
+        if (conversationInsertError) {
+          return new Response(JSON.stringify({ error: conversationInsertError.message }), {
+            status: 500,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
       }
 
       // Save user message before stream starts
-      await supabase.from("messages").insert({
+      const { error: userMessageInsertError } = await supabase.from("messages").insert({
         id: crypto.randomUUID(),
         conversation_id,
         idea_id,
@@ -168,6 +182,13 @@ export async function POST(request: NextRequest) {
         content: message,
         created_at: new Date().toISOString(),
       });
+
+      if (userMessageInsertError) {
+        return new Response(JSON.stringify({ error: userMessageInsertError.message }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
     }
 
     const stream = await anthropic.messages.create({
@@ -190,6 +211,23 @@ export async function POST(request: NextRequest) {
               controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: event.delta.text })}\n\n`));
             }
             if (event.type === "message_stop") {
+              if (conversation_id && fullResponse) {
+                const { error: assistantMessageInsertError } = await supabase.from("messages").insert({
+                  id: crypto.randomUUID(),
+                  conversation_id,
+                  idea_id,
+                  role: "idea",
+                  content: fullResponse,
+                  created_at: new Date().toISOString(),
+                });
+
+                if (assistantMessageInsertError) {
+                  console.error("[/api/converse] failed to save assistant message", assistantMessageInsertError);
+                  controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: assistantMessageInsertError.message })}\n\n`));
+                  controller.close();
+                  return;
+                }
+              }
               controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true })}\n\n`));
               controller.close();
             }
