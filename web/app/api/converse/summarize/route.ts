@@ -4,39 +4,64 @@ import { NextRequest } from "next/server";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
 
+function jsonResponse(body: Record<string, unknown>, status: number) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
 export async function POST(request: NextRequest) {
   try {
     const { conversation_id, idea_id } = await request.json();
     if (!conversation_id || !idea_id) {
-      return new Response(JSON.stringify({ error: "missing fields" }), { status: 400 });
+      return jsonResponse({ error: "missing fields" }, 400);
     }
 
     const supabase = await createClient();
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
+    }
 
     // Fetch conversation — skip if already summarized
     const { data: conversation, error: convError } = await supabase
       .from("conversations")
-      .select("id, summary")
+      .select("id, idea_id, summary")
       .eq("id", conversation_id)
+      .eq("idea_id", idea_id)
       .single();
 
     if (convError || !conversation) {
-      return new Response(JSON.stringify({ error: "conversation not found" }), { status: 404 });
+      return jsonResponse({ error: "conversation not found" }, 404);
     }
 
     if (conversation.summary) {
-      return new Response(JSON.stringify({ ok: true, skipped: true }), { status: 200 });
+      return jsonResponse({ ok: true, skipped: true }, 200);
     }
 
     // Fetch messages
-    const { data: messages } = await supabase
+    const { data: messages, error: messagesError } = await supabase
       .from("messages")
       .select("role, content")
       .eq("conversation_id", conversation_id)
+      .eq("idea_id", idea_id)
       .order("created_at", { ascending: true });
 
+    if (messagesError) {
+      return jsonResponse({ error: messagesError.message }, 500);
+    }
+
     if (!messages || messages.length === 0) {
-      return new Response(JSON.stringify({ ok: true, skipped: true }), { status: 200 });
+      return jsonResponse({ ok: true, skipped: true }, 200);
+    }
+
+    if (messages[messages.length - 1].role !== "idea") {
+      return jsonResponse({ ok: true, skipped: true, reason: "conversation_incomplete" }, 200);
     }
 
     // Build prompt
@@ -67,14 +92,19 @@ ${transcript}`;
       response.content[0].type === "text" ? response.content[0].text.trim() : "";
 
     // Save to conversations.summary
-    await supabase
+    const { error: updateError } = await supabase
       .from("conversations")
       .update({ summary })
-      .eq("id", conversation_id);
+      .eq("id", conversation_id)
+      .eq("idea_id", idea_id);
 
-    return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    if (updateError) {
+      return jsonResponse({ error: updateError.message }, 500);
+    }
+
+    return jsonResponse({ ok: true }, 200);
   } catch (err: any) {
     console.error("[/api/converse/summarize]", err);
-    return new Response(JSON.stringify({ error: err.message }), { status: 500 });
+    return jsonResponse({ error: err.message }, 500);
   }
 }
