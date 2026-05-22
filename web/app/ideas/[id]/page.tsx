@@ -45,16 +45,29 @@ async function getConversations(ideaId: string): Promise<Conversation[]> {
     .from("conversations")
     .select("*")
     .eq("idea_id", ideaId)
+    .in("context", ["portfolio_public", "public"])
     .order("created_at", { ascending: false });
   return (data ?? []) as Conversation[];
 }
 
 async function getMessages(ideaId: string): Promise<Message[]> {
   const supabase = serverSupabase();
+  const { data: conversations } = await supabase
+    .from("conversations")
+    .select("id")
+    .eq("idea_id", ideaId)
+    .in("context", ["portfolio_public", "public"]);
+  const conversationIds = (conversations ?? []).map((c) => c.id);
+
+  if (conversationIds.length === 0) {
+    return [];
+  }
+
   const { data } = await supabase
     .from("messages")
     .select("*")
     .eq("idea_id", ideaId)
+    .in("conversation_id", conversationIds)
     .order("created_at", { ascending: true });
   return (data ?? []) as Message[];
 }
