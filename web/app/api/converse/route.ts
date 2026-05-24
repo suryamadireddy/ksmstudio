@@ -114,6 +114,17 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = await createClient();
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
 
     const [ideaRes, journalRes, summariesRes, refinementsRes] = await Promise.all([
       supabase.from("ideas").select("*").eq("id", idea_id).single(),
@@ -122,7 +133,7 @@ export async function POST(request: NextRequest) {
       supabase.from("refinements").select("*").eq("idea_id", idea_id).order("created_at"),
     ]);
 
-    if (!ideaRes.data) {
+    if (ideaRes.error || !ideaRes.data) {
       return new Response(JSON.stringify({ error: "Idea not found" }), {
         status: 404,
         headers: { "Content-Type": "application/json" },
@@ -144,23 +155,38 @@ export async function POST(request: NextRequest) {
 
     // Create conversation row if it doesn't exist yet
     if (conversation_id) {
-      const { data: existingConv } = await supabase
+      const { data: existingConv, error: existingConvError } = await supabase
         .from("conversations")
         .select("id")
         .eq("id", conversation_id)
-        .single();
+        .eq("idea_id", idea_id)
+        .maybeSingle();
+
+      if (existingConvError) {
+        return new Response(JSON.stringify({ error: "Could not load conversation" }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
 
       if (!existingConv) {
-        await supabase.from("conversations").insert({
+        const { error: createConvError } = await supabase.from("conversations").insert({
           id: conversation_id,
           idea_id,
           context: mode === "public" ? "portfolio_public" : "internal",
           created_at: new Date().toISOString(),
         });
+
+        if (createConvError) {
+          return new Response(JSON.stringify({ error: "Could not create conversation" }), {
+            status: 500,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
       }
 
       // Save user message before stream starts
-      await supabase.from("messages").insert({
+      const { error: saveUserError } = await supabase.from("messages").insert({
         id: crypto.randomUUID(),
         conversation_id,
         idea_id,
@@ -168,6 +194,13 @@ export async function POST(request: NextRequest) {
         content: message,
         created_at: new Date().toISOString(),
       });
+
+      if (saveUserError) {
+        return new Response(JSON.stringify({ error: "Could not save message" }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
     }
 
     const stream = await anthropic.messages.create({
@@ -190,6 +223,22 @@ export async function POST(request: NextRequest) {
               controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: event.delta.text })}\n\n`));
             }
             if (event.type === "message_stop") {
+              if (conversation_id && fullResponse.trim()) {
+                const { error: saveIdeaError } = await supabase.from("messages").insert({
+                  id: crypto.randomUUID(),
+                  conversation_id,
+                  idea_id,
+                  role: "idea",
+                  content: fullResponse,
+                  created_at: new Date().toISOString(),
+                });
+
+                if (saveIdeaError) {
+                  controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: "Could not save response" })}\n\n`));
+                  controller.close();
+                  return;
+                }
+              }
               controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true })}\n\n`));
               controller.close();
             }
