@@ -9,7 +9,27 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = await createClient();
-    await supabase.from("messages").insert({
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
+    }
+
+    const { data: conversation, error: conversationError } = await supabase
+      .from("conversations")
+      .select("id")
+      .eq("id", conversation_id)
+      .eq("idea_id", idea_id)
+      .single();
+
+    if (conversationError || !conversation) {
+      return new Response(JSON.stringify({ error: "conversation not found" }), { status: 404 });
+    }
+
+    const { error: insertError } = await supabase.from("messages").insert({
       id: crypto.randomUUID(),
       conversation_id,
       idea_id,
@@ -17,6 +37,10 @@ export async function POST(request: NextRequest) {
       content,
       created_at: new Date().toISOString(),
     });
+
+    if (insertError) {
+      return new Response(JSON.stringify({ error: "could not save message" }), { status: 500 });
+    }
 
     return new Response(JSON.stringify({ ok: true }), { status: 200 });
   } catch (err: any) {
