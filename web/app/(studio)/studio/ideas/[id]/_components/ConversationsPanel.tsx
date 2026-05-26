@@ -110,10 +110,11 @@ export default function ConversationsPanel({
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // 1. Tracks whether the live session has any messages
-  const hasMessages = useRef(false);
+  // 1. Tracks whether the live session has a complete turn worth summarizing.
+  const hasCompleteTurn = useRef(false);
   useEffect(() => {
-    hasMessages.current = liveMessages.length > 0;
+    const last = liveMessages[liveMessages.length - 1];
+    hasCompleteTurn.current = last?.role === "idea" && !last.streaming;
   }, [liveMessages]);
 
   // 2. saveSummary — sendBeacon primary, fetch fallback
@@ -132,10 +133,10 @@ export default function ConversationsPanel({
     }
   }, [conversationId, ideaId]);
 
-  // 3a. beforeunload — trigger summary if messages exist
+  // 3a. beforeunload — trigger summary only after a complete exchange
   useEffect(() => {
     const handler = () => {
-      if (hasMessages.current) {
+      if (hasCompleteTurn.current) {
         navigator.sendBeacon(
           "/api/converse/summarize",
           new Blob(
@@ -152,11 +153,12 @@ export default function ConversationsPanel({
   // 3b. Inactivity timeout — summarize 60 min after the last "idea" message
   const inactivityTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
+    if (inactivityTimer.current) clearTimeout(inactivityTimer.current);
+
     if (liveMessages.length === 0) return;
     const last = liveMessages[liveMessages.length - 1];
     if (last.role !== "idea" || last.streaming) return;
 
-    if (inactivityTimer.current) clearTimeout(inactivityTimer.current);
     inactivityTimer.current = setTimeout(saveSummary, 60 * 60 * 1000);
 
     return () => {
@@ -168,11 +170,15 @@ export default function ConversationsPanel({
   useEffect(() => {
     const messagesByConv: Record<string, Message[]> = {};
     for (const m of messages) {
+      if (!m.conversation_id) continue;
       if (!messagesByConv[m.conversation_id]) messagesByConv[m.conversation_id] = [];
       messagesByConv[m.conversation_id].push(m);
     }
     for (const conv of conversations) {
-      if (!conv.summary && messagesByConv[conv.id]?.length > 0) {
+      const convMessages = messagesByConv[conv.id] ?? [];
+      const last = convMessages[convMessages.length - 1];
+      const hasIdeaResponse = convMessages.some((msg) => msg.role !== "user");
+      if (!conv.summary && hasIdeaResponse && last?.role !== "user") {
         fetch("/api/converse/summarize", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -232,49 +238,50 @@ export default function ConversationsPanel({
       const reader = res.body!.getReader();
       const decoder = new TextDecoder();
       let accumulated = "";
+      let buffered = "";
 
       while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
-        for (const line of decoder.decode(value, { stream: true }).split("\n")) {
+        if (done) {
+          break;
+        }
+        buffered += decoder.decode(value, { stream: true });
+        const lines = buffered.split("\n");
+        buffered = lines.pop() ?? "";
+
+        for (const line of lines) {
           if (!line.startsWith("data: ")) continue;
+          let parsed: { text?: string; done?: boolean; error?: string };
           try {
-            const parsed = JSON.parse(line.slice(6));
-            if (parsed.text) {
-              accumulated += parsed.text;
-              setLiveMessages((prev) => {
-                const updated = [...prev];
-                updated[updated.length - 1] = {
-                  role: "idea",
-                  content: accumulated,
-                  streaming: true,
-                };
-                return updated;
-              });
-            }
-            if (parsed.done) {
-              setLiveMessages((prev) => {
-                const updated = [...prev];
-                updated[updated.length - 1] = {
-                  role: "idea",
-                  content: accumulated,
-                  streaming: false,
-                };
-                return updated;
-              });
-              // Save idea response now that stream is complete
-              fetch("/api/converse/save", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  conversation_id: conversationId,
-                  idea_id: ideaId,
-                  content: accumulated,
-                }),
-              });
-            }
-            if (parsed.error) throw new Error(parsed.error);
-          } catch { /* skip malformed lines */ }
+            parsed = JSON.parse(line.slice(6));
+          } catch {
+            continue;
+          }
+
+          if (parsed.error) throw new Error(parsed.error);
+          if (parsed.text) {
+            accumulated += parsed.text;
+            setLiveMessages((prev) => {
+              const updated = [...prev];
+              updated[updated.length - 1] = {
+                role: "idea",
+                content: accumulated,
+                streaming: true,
+              };
+              return updated;
+            });
+          }
+          if (parsed.done) {
+            setLiveMessages((prev) => {
+              const updated = [...prev];
+              updated[updated.length - 1] = {
+                role: "idea",
+                content: accumulated,
+                streaming: false,
+              };
+              return updated;
+            });
+          }
         }
       }
     } catch (err: any) {
