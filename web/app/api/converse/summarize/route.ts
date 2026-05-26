@@ -12,16 +12,28 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = await createClient();
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
+    }
 
     // Fetch conversation — skip if already summarized
     const { data: conversation, error: convError } = await supabase
       .from("conversations")
-      .select("id, summary")
+      .select("id, idea_id, summary")
       .eq("id", conversation_id)
       .single();
 
     if (convError || !conversation) {
       return new Response(JSON.stringify({ error: "conversation not found" }), { status: 404 });
+    }
+
+    if (conversation.idea_id !== idea_id) {
+      return new Response(JSON.stringify({ error: "conversation does not belong to idea" }), { status: 400 });
     }
 
     if (conversation.summary) {
@@ -33,10 +45,17 @@ export async function POST(request: NextRequest) {
       .from("messages")
       .select("role, content")
       .eq("conversation_id", conversation_id)
+      .eq("idea_id", idea_id)
       .order("created_at", { ascending: true });
 
     if (!messages || messages.length === 0) {
       return new Response(JSON.stringify({ ok: true, skipped: true }), { status: 200 });
+    }
+
+    const lastMessage = messages[messages.length - 1];
+    const hasIdeaResponse = messages.some((message) => message.role !== "user");
+    if (!hasIdeaResponse || lastMessage.role === "user") {
+      return new Response(JSON.stringify({ ok: true, skipped: true, reason: "incomplete" }), { status: 200 });
     }
 
     // Build prompt
@@ -67,10 +86,16 @@ ${transcript}`;
       response.content[0].type === "text" ? response.content[0].text.trim() : "";
 
     // Save to conversations.summary
-    await supabase
+    const { error: updateError } = await supabase
       .from("conversations")
       .update({ summary })
-      .eq("id", conversation_id);
+      .eq("id", conversation_id)
+      .eq("idea_id", idea_id)
+      .is("summary", null);
+
+    if (updateError) {
+      throw updateError;
+    }
 
     return new Response(JSON.stringify({ ok: true }), { status: 200 });
   } catch (err: any) {
