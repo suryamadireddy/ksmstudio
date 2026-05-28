@@ -27,6 +27,14 @@ ALTER TABLE conversations ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
 
+-- Public portfolio chat history is mediated by server-side routes using the
+-- service role key. Anonymous clients must not directly read or write
+-- conversations/messages, or one visitor could access another visitor's chat.
+DROP POLICY IF EXISTS "Public can create portfolio conversations" ON conversations;
+DROP POLICY IF EXISTS "Public can read own portfolio conversations" ON conversations;
+DROP POLICY IF EXISTS "Public can create messages in portfolio conversations" ON messages;
+DROP POLICY IF EXISTS "Public can read messages in portfolio conversations" ON messages;
+
 -- IDEAS TABLE
 
 CREATE POLICY "Authenticated full access to ideas"
@@ -64,16 +72,6 @@ CREATE POLICY "Authenticated full access to conversations"
   USING (true)
   WITH CHECK (true);
 
-CREATE POLICY "Public can create portfolio conversations"
-  ON conversations FOR INSERT
-  TO anon
-  WITH CHECK (context = 'portfolio_public');
-
-CREATE POLICY "Public can read own portfolio conversations"
-  ON conversations FOR SELECT
-  TO anon
-  USING (context = 'portfolio_public');
-
 -- MESSAGES
 
 CREATE POLICY "Authenticated full access to messages"
@@ -81,21 +79,3 @@ CREATE POLICY "Authenticated full access to messages"
   TO authenticated
   USING (true)
   WITH CHECK (true);
-
-CREATE POLICY "Public can create messages in portfolio conversations"
-  ON messages FOR INSERT
-  TO anon
-  WITH CHECK (
-    conversation_id IN (
-      SELECT id FROM conversations WHERE context = 'portfolio_public'
-    )
-  );
-
-CREATE POLICY "Public can read messages in portfolio conversations"
-  ON messages FOR SELECT
-  TO anon
-  USING (
-    conversation_id IN (
-      SELECT id FROM conversations WHERE context = 'portfolio_public'
-    )
-  );

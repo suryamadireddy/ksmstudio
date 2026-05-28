@@ -2,7 +2,7 @@ import { Anthropic } from "@anthropic-ai/sdk";
 import { CONVERSE_MODEL } from "@/lib/models";
 import { SHARED_REFUSALS } from "@/lib/portfolio/refusals";
 import { composeSystemPrompt } from "@/lib/portfolio/compose-system-prompt";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 import { checkRateLimit } from "@/lib/portfolio/rate-limit";
 
 export const dynamic = "force-dynamic";
@@ -14,6 +14,10 @@ export async function POST(
   const { slug } = await params;
   const { message, conversationId } = await req.json();
 
+  if (typeof message !== "string" || !message.trim()) {
+    return Response.json({ error: "invalid_message" }, { status: 400 });
+  }
+
   const ip = req.headers.get("x-forwarded-for") ?? "unknown";
   const rateLimit = await checkRateLimit(ip);
   if (!rateLimit.ok) {
@@ -21,6 +25,14 @@ export async function POST(
   }
 
   const supabase = await createClient();
+  let adminSupabase;
+  try {
+    adminSupabase = createServiceRoleClient();
+  } catch (error) {
+    console.error("service role client error:", error);
+    return Response.json({ error: "server_not_configured" }, { status: 500 });
+  }
+
   const { data: row } = await supabase
     .from("ideas")
     .select(
@@ -62,10 +74,10 @@ export async function POST(
     sharedRefusals: SHARED_REFUSALS,
   });
 
-  let convId: string = conversationId ?? "";
+  let convId = typeof conversationId === "string" ? conversationId : "";
   if (!convId) {
     convId = crypto.randomUUID();
-    const { error: convErr } = await supabase.from("conversations").insert({
+    const { error: convErr } = await adminSupabase.from("conversations").insert({
       id: convId,
       idea_id: row.id,
       context: "portfolio_public",
@@ -75,22 +87,43 @@ export async function POST(
       console.error("conversation insert error:", convErr);
       return Response.json({ error: "db_error" }, { status: 500 });
     }
+  } else {
+    const { data: existingConversation, error: convErr } = await adminSupabase
+      .from("conversations")
+      .select("id")
+      .eq("id", convId)
+      .eq("idea_id", row.id)
+      .eq("context", "portfolio_public")
+      .maybeSingle();
+
+    if (convErr) {
+      console.error("conversation lookup error:", convErr);
+      return Response.json({ error: "db_error" }, { status: 500 });
+    }
+
+    if (!existingConversation) {
+      return Response.json({ error: "conversation_not_found" }, { status: 404 });
+    }
   }
 
-  const { error: msgErr } = await supabase.from("messages").insert({
+  const { error: msgErr } = await adminSupabase.from("messages").insert({
     id: crypto.randomUUID(),
     conversation_id: convId,
     idea_id: row.id,
     role: "user",
-    content: message,
+    content: message.trim(),
     created_at: new Date().toISOString(),
   });
-  if (msgErr) console.error("user message insert error:", msgErr);
+  if (msgErr) {
+    console.error("user message insert error:", msgErr);
+    return Response.json({ error: "db_error" }, { status: 500 });
+  }
 
-  const { data: history } = await supabase
+  const { data: history } = await adminSupabase
     .from("messages")
     .select("role, content")
     .eq("conversation_id", convId)
+    .eq("idea_id", row.id)
     .order("created_at");
 
   const anthropic = new Anthropic();
@@ -118,7 +151,7 @@ export async function POST(
           controller.enqueue(encoder.encode(event.delta.text));
         }
       }
-      await supabase.from("messages").insert({
+      const { error: replyErr } = await adminSupabase.from("messages").insert({
         id: crypto.randomUUID(),
         conversation_id: convId,
         idea_id: row.id,
@@ -126,6 +159,7 @@ export async function POST(
         content: full,
         created_at: new Date().toISOString(),
       });
+      if (replyErr) console.error("assistant message insert error:", replyErr);
       controller.close();
     },
   });
