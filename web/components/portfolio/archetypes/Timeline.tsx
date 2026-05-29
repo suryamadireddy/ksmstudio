@@ -8,7 +8,7 @@ export interface TimelineContent {
   entries: TimelineEntry[];
 }
 
-export function Timeline({ entries }: TimelineContent) {
+export function Timeline({ entries = [] }: Partial<TimelineContent>) {
   return (
     <section className="py-16 md:py-24">
       <div className="mx-auto max-w-6xl px-8 md:px-10">

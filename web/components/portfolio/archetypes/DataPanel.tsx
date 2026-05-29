@@ -8,7 +8,7 @@ export interface DataPanelContent {
   items: DataPanelItem[];
 }
 
-export function DataPanel({ items }: DataPanelContent) {
+export function DataPanel({ items = [] }: Partial<DataPanelContent>) {
   return (
     <section className="py-16 md:py-24">
       <div className="mx-auto max-w-6xl px-8 md:px-10">

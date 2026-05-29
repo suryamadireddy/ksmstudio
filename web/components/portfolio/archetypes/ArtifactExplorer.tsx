@@ -15,8 +15,9 @@ const TABS = [
 
 type Tab = "brief" | "synthesis" | "prd";
 
-export function ArtifactExplorer({ preselected, intro }: ArtifactExplorerContent) {
-  const [active, setActive] = useState<Tab>(preselected);
+export function ArtifactExplorer({ preselected = "brief", intro }: Partial<ArtifactExplorerContent>) {
+  const initialTab = TABS.some((tab) => tab.id === preselected) ? preselected : "brief";
+  const [active, setActive] = useState<Tab>(initialTab);
 
   return (
     <section className="py-16 md:py-24">

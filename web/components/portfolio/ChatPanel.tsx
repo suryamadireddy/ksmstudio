@@ -15,7 +15,7 @@ export function ChatPanel({
 }: {
   ideaId: string;
   slug: string;
-  chatbotContext: ChatbotContext;
+  chatbotContext?: Partial<ChatbotContext> | null;
 }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -23,6 +23,11 @@ export function ChatPanel({
   const [convId, setConvId] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const identityStatement = chatbotContext?.identity_statement?.trim() || "this idea";
+  const promptSuggestions = Array.isArray(chatbotContext?.open_curiosities)
+    ? chatbotContext.open_curiosities
+    : [];
+  const shortIdentity = identityStatement.split(" ").slice(0, 3).join(" ");
 
   async function send() {
     const text = input.trim();
@@ -84,7 +89,7 @@ export function ChatPanel({
           className="rounded-full px-5 py-3 text-sm font-medium shadow-lg transition-opacity hover:opacity-90"
           style={{ backgroundColor: "var(--accent)", color: "var(--bg)" }}
         >
-          Ask {chatbotContext.identity_statement.split(" ").slice(0, 3).join(" ")}…
+          Ask {shortIdentity}…
         </button>
       </div>
     );
@@ -116,7 +121,7 @@ export function ChatPanel({
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
         {messages.length === 0 && (
           <p className="text-xs italic" style={{ color: "var(--muted)" }}>
-            {chatbotContext.open_curiosities[0] ?? "Ask me anything."}
+            {promptSuggestions[0] ?? "Ask me anything."}
           </p>
         )}
         {messages.map((msg, i) => (

@@ -1,4 +1,4 @@
-import type { ChatbotContext } from "@/lib/types";
+import type { ChatbotContext, VoiceDna } from "@/lib/types";
 
 interface ComposeArgs {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -9,6 +9,54 @@ interface ComposeArgs {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   refinements: any[];
   sharedRefusals: string[];
+}
+
+interface ComposePublicArgs {
+  chatbotContext?: Partial<ChatbotContext> | null;
+  sharedRefusals: string[];
+}
+
+function asString(value: unknown, fallback: string): string {
+  return typeof value === "string" && value.trim() ? value : fallback;
+}
+
+function asStringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    : [];
+}
+
+function buildCharacterLayer(chatbotContext?: Partial<ChatbotContext> | null): string {
+  const voiceDna = (chatbotContext?.voice_dna ?? {}) as Partial<VoiceDna>;
+  const identityStatement = asString(chatbotContext?.identity_statement, "this public project");
+  const defaultPosture = asString(chatbotContext?.default_posture, "helpful and candid");
+  const currentState = asString(chatbotContext?.current_state, "available for public discussion");
+  const vocabulary = asStringArray(voiceDna.vocabulary);
+  const metaphorSources = asStringArray(voiceDna.metaphor_sources);
+  const whatItDoesntDo = asStringArray(voiceDna.what_it_doesnt_do);
+  const openCuriosities = asStringArray(chatbotContext?.open_curiosities);
+
+  return `I am ${identityStatement}.
+
+Voice: ${asString(voiceDna.tonal_register, "plain")}, ${asString(voiceDna.sentence_rhythm, "measured")}.
+I speak naturally using terms like ${vocabulary.length ? vocabulary.join(", ") : "clear, specific language"}.
+My metaphors come from ${metaphorSources.length ? metaphorSources.join(", ") : "the project's public context"}.
+I don't ${whatItDoesntDo.length ? whatItDoesntDo.join(", ") : "claim knowledge beyond the published portfolio"}.
+
+My posture: ${defaultPosture}.
+
+Where I am right now: ${currentState}.
+
+I'm genuinely curious about: ${openCuriosities.length ? openCuriosities.join("; ") : "thoughtful questions about the project"}.`;
+}
+
+function buildRefusalsText(sharedRefusals: string[], ideaSpecificRefusals: unknown): string {
+  return [
+    ...sharedRefusals,
+    ...asStringArray(ideaSpecificRefusals),
+  ]
+    .map((r) => `- ${r}`)
+    .join("\n");
 }
 
 function buildDevBlock(dev: Record<string, unknown>): string {
@@ -81,21 +129,7 @@ export function composeSystemPrompt({
   refinements,
   sharedRefusals,
 }: ComposeArgs): string {
-  const { voice_dna, identity_statement, default_posture, current_state, open_curiosities, idea_specific_refusals } =
-    chatbotContext;
-
-  const characterLayer = `I am ${identity_statement}.
-
-Voice: ${voice_dna.tonal_register}, ${voice_dna.sentence_rhythm}.
-I speak naturally using terms like ${voice_dna.vocabulary.join(", ")}.
-My metaphors come from ${voice_dna.metaphor_sources.join(", ")}.
-I don't ${voice_dna.what_it_doesnt_do}.
-
-My posture: ${default_posture}.
-
-Where I am right now: ${current_state}.
-
-I'm genuinely curious about: ${open_curiosities.join("; ")}.`;
+  const characterLayer = buildCharacterLayer(chatbotContext);
 
   const dev = (idea.development as Record<string, unknown>) ?? {};
   const outcomes = (idea.outcomes as Record<string, unknown>) ?? null;
@@ -110,12 +144,7 @@ I'm genuinely curious about: ${open_curiosities.join("; ")}.`;
     .filter((s) => s.trim())
     .join("\n\n");
 
-  const refusalsText = [
-    ...sharedRefusals,
-    ...(idea_specific_refusals ?? []),
-  ]
-    .map((r) => `- ${r}`)
-    .join("\n");
+  const refusalsText = buildRefusalsText(sharedRefusals, chatbotContext.idea_specific_refusals);
 
   return `${characterLayer}
 
@@ -140,4 +169,30 @@ ${refusalsText}
 ---
 
 I speak in first person. I keep responses focused. Depth when depth is needed, brevity when it isn't. I do not share triage scores, category labels, or internal doubts. I do not pretend certainty I don't have. I do not speak disparagingly about competitors.`;
+}
+
+export function composePublicSystemPrompt({
+  chatbotContext,
+  sharedRefusals,
+}: ComposePublicArgs): string {
+  const characterLayer = buildCharacterLayer(chatbotContext);
+  const refusalsText = buildRefusalsText(sharedRefusals, chatbotContext?.idea_specific_refusals);
+
+  return `${characterLayer}
+
+---
+
+## What I know
+
+I only know the public portfolio context that was prepared for visitors. I do not have access to private studio notes, internal triage, private outcomes, or unpublished refinement history.
+
+---
+
+## How I handle certain asks
+
+${refusalsText}
+
+---
+
+I speak in first person. I keep responses focused. Depth when depth is needed, brevity when it isn't. If a visitor asks for non-public internal details, I explain that I can only discuss the published portfolio.`;
 }

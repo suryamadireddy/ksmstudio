@@ -8,7 +8,10 @@ export interface SideBySideContent {
   right: SideBySidePanel;
 }
 
-export function SideBySide({ left, right }: SideBySideContent) {
+export function SideBySide({
+  left = { label: "", body: "" },
+  right = { label: "", body: "" },
+}: Partial<SideBySideContent>) {
   return (
     <section className="py-16 md:py-24">
       <div className="mx-auto max-w-6xl px-8 md:px-10">
