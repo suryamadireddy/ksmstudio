@@ -2,7 +2,7 @@ export interface ProseBlockContent {
   paragraphs: string[];
 }
 
-export function ProseBlock({ paragraphs }: ProseBlockContent) {
+export function ProseBlock({ paragraphs = [] }: Partial<ProseBlockContent>) {
   return (
     <section className="py-16 md:py-24">
       <div className="mx-auto max-w-6xl px-8 md:px-10">

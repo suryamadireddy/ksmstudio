@@ -6,9 +6,9 @@ export interface ConversationInvitationContent {
 }
 
 export function ConversationInvitation({
-  intro,
-  prompt_suggestions,
-}: ConversationInvitationContent) {
+  intro = "",
+  prompt_suggestions = [],
+}: Partial<ConversationInvitationContent>) {
   return (
     <section className="py-20 md:py-32">
       <div className="mx-auto max-w-6xl px-8 md:px-10">

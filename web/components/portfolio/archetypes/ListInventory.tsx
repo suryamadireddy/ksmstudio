@@ -7,7 +7,7 @@ export interface ListInventoryContent {
   items: ListInventoryItem[];
 }
 
-export function ListInventory({ items }: ListInventoryContent) {
+export function ListInventory({ items = [] }: Partial<ListInventoryContent>) {
   return (
     <section className="py-16 md:py-24">
       <div className="mx-auto max-w-6xl px-8 md:px-10">
