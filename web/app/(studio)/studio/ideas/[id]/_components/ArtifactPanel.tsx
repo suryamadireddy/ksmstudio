@@ -1,4 +1,63 @@
-import type { Idea } from "@/lib/types";
+import type { Idea, MvpFeature, MvpScope, Persona } from "@/lib/types";
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function parseJsonString(value: string): unknown {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+}
+
+function normalizeString(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value === null || value === undefined) return "";
+  return String(value);
+}
+
+function normalizePersonas(raw: unknown): Persona[] {
+  const parsed = typeof raw === "string" ? parseJsonString(raw) : raw;
+  const items = Array.isArray(parsed) ? parsed : isRecord(parsed) ? [parsed] : [];
+
+  return items
+    .filter(isRecord)
+    .map((p) => ({
+      label: normalizeString(p.label),
+      description: normalizeString(p.description),
+      pain: normalizeString(p.pain),
+      gain: normalizeString(p.gain),
+      proxy_for_real_user:
+        typeof p.proxy_for_real_user === "boolean"
+          ? p.proxy_for_real_user
+          : undefined,
+    }))
+    .filter((p) => p.label || p.description || p.pain || p.gain);
+}
+
+function normalizeFeatureArray(raw: unknown): MvpFeature[] {
+  const parsed = typeof raw === "string" ? parseJsonString(raw) : raw;
+  if (!Array.isArray(parsed)) return [];
+
+  return parsed
+    .filter(isRecord)
+    .map((feature) => ({
+      name: normalizeString(feature.name),
+      description: normalizeString(feature.description) || undefined,
+      story_ref: normalizeString(feature.story_ref) || undefined,
+      hypothesis_link: normalizeString(feature.hypothesis_link) || undefined,
+      effort: feature.effort as MvpFeature["effort"],
+      priority: feature.priority as MvpFeature["priority"],
+    }))
+    .filter((feature) => feature.name);
+}
+
+function normalizeStringArray(raw: unknown): string[] {
+  const parsed = typeof raw === "string" ? parseJsonString(raw) : raw;
+  return Array.isArray(parsed) ? parsed.map(normalizeString).filter(Boolean) : [];
+}
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -45,16 +104,11 @@ const PRIORITY_COLOR: Record<string, string> = {
 export default function ArtifactPanel({ idea }: { idea: Idea }) {
   const d = idea.development;
   const prd = d?.prd;
-  const mvp = d?.mvp_scope;
+  const mvp = d?.mvp_scope as MvpScope | undefined;
   const next = d?.next_steps;
-  const personas = (() => {
-    const raw = d?.personas;
-    if (Array.isArray(raw)) return raw;
-    if (typeof raw === "string") {
-      try { return JSON.parse(raw); } catch { return []; }
-    }
-    return [];
-  })();
+  const personas = normalizePersonas(d?.personas);
+  const mvpFeatures = normalizeFeatureArray(mvp?.features);
+  const buildSequence = normalizeStringArray(mvp?.build_sequence);
 
   if (!prd && !mvp && !next && !personas.length) {
     return (
@@ -154,11 +208,11 @@ export default function ArtifactPanel({ idea }: { idea: Idea }) {
                 {mvp.effort_estimate}
               </p>
             )}
-            {mvp.features && mvp.features.length > 0 && (
+            {mvpFeatures.length > 0 && (
               <div>
                 <p className="mb-3 text-[10px] font-semibold uppercase tracking-widest" style={{ color: "var(--studio-amber-dim)" }}>Features</p>
                 <div className="space-y-3">
-                  {mvp.features.map((f, i) => (
+                  {mvpFeatures.map((f, i) => (
                     <div key={i} className="flex items-start justify-between gap-3">
                       <div>
                         <p className="text-sm font-medium" style={{ color: "var(--studio-fg)" }}>{f.name}</p>
@@ -182,11 +236,11 @@ export default function ArtifactPanel({ idea }: { idea: Idea }) {
                 </div>
               </div>
             )}
-            {mvp.build_sequence?.length > 0 && (
+            {buildSequence.length > 0 && (
               <div>
                 <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest" style={{ color: "var(--studio-amber-dim)" }}>Build Sequence</p>
                 <ol className="space-y-1.5">
-                  {mvp.build_sequence.map((step, i) => (
+                  {buildSequence.map((step, i) => (
                     <li key={i} className="flex gap-2 text-sm" style={{ color: "var(--studio-fg-muted)" }}>
                       <span style={{ fontFamily: "var(--font-jetbrains, monospace)", color: "var(--studio-amber-dim)", fontSize: "11px" }}>
                         {String(i + 1).padStart(2, "0")}
