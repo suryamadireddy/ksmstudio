@@ -29,11 +29,15 @@ ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
 
 -- IDEAS TABLE
 
+DROP POLICY IF EXISTS "Authenticated full access to ideas" ON ideas;
+
 CREATE POLICY "Authenticated full access to ideas"
   ON ideas FOR ALL
   TO authenticated
   USING (true)
   WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Public read published ideas" ON ideas;
 
 CREATE POLICY "Public read published ideas"
   ON ideas FOR SELECT
@@ -41,6 +45,8 @@ CREATE POLICY "Public read published ideas"
   USING (published = true);
 
 -- JOURNAL ENTRIES
+
+DROP POLICY IF EXISTS "Authenticated full access to journal" ON journal_entries;
 
 CREATE POLICY "Authenticated full access to journal"
   ON journal_entries FOR ALL
@@ -50,6 +56,8 @@ CREATE POLICY "Authenticated full access to journal"
 
 -- REFINEMENTS
 
+DROP POLICY IF EXISTS "Authenticated full access to refinements" ON refinements;
+
 CREATE POLICY "Authenticated full access to refinements"
   ON refinements FOR ALL
   TO authenticated
@@ -58,23 +66,25 @@ CREATE POLICY "Authenticated full access to refinements"
 
 -- CONVERSATIONS
 
+DROP POLICY IF EXISTS "Authenticated full access to conversations" ON conversations;
+DROP POLICY IF EXISTS "Public can create portfolio conversations" ON conversations;
+DROP POLICY IF EXISTS "Public can read own portfolio conversations" ON conversations;
+
 CREATE POLICY "Authenticated full access to conversations"
   ON conversations FOR ALL
   TO authenticated
   USING (true)
   WITH CHECK (true);
 
-CREATE POLICY "Public can create portfolio conversations"
-  ON conversations FOR INSERT
-  TO anon
-  WITH CHECK (context = 'portfolio_public');
-
-CREATE POLICY "Public can read own portfolio conversations"
-  ON conversations FOR SELECT
-  TO anon
-  USING (context = 'portfolio_public');
+-- Public portfolio chat transcripts are persisted by the trusted
+-- /api/projects/[slug]/chat route using the server-only service role key.
+-- Do not grant direct anon access to conversations.
 
 -- MESSAGES
+
+DROP POLICY IF EXISTS "Authenticated full access to messages" ON messages;
+DROP POLICY IF EXISTS "Public can create messages in portfolio conversations" ON messages;
+DROP POLICY IF EXISTS "Public can read messages in portfolio conversations" ON messages;
 
 CREATE POLICY "Authenticated full access to messages"
   ON messages FOR ALL
@@ -82,20 +92,5 @@ CREATE POLICY "Authenticated full access to messages"
   USING (true)
   WITH CHECK (true);
 
-CREATE POLICY "Public can create messages in portfolio conversations"
-  ON messages FOR INSERT
-  TO anon
-  WITH CHECK (
-    conversation_id IN (
-      SELECT id FROM conversations WHERE context = 'portfolio_public'
-    )
-  );
-
-CREATE POLICY "Public can read messages in portfolio conversations"
-  ON messages FOR SELECT
-  TO anon
-  USING (
-    conversation_id IN (
-      SELECT id FROM conversations WHERE context = 'portfolio_public'
-    )
-  );
+-- Do not grant direct anon access to messages; otherwise any holder of the
+-- public anon key can enumerate or append to public visitor transcripts.
