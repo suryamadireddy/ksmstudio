@@ -195,7 +195,7 @@ export function WorkspaceChatPane({
         if (cancelled) return;
         const still = applyPayload(data);
         if (!still || cancelled) return;
-        intervalId = window.setInterval(() => {
+        intervalId = setInterval(() => {
           void pollOnce();
         }, 4000);
       } catch {
