@@ -57,7 +57,7 @@ export default function PublishToggle({ idea }: { idea: Idea }) {
             </button>
             {slug && (
               <a
-                href={`/p/${slug}`}
+                href={`/projects/${slug}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="mt-1 block text-[11px] transition-colors"
@@ -111,7 +111,7 @@ export default function PublishToggle({ idea }: { idea: Idea }) {
 
             {idea.portfolio?.slug && (
               <p className="mb-4 text-[11px]" style={{ color: "var(--studio-fg-muted)" }}>
-                URL: <span className="font-mono">/p/{idea.portfolio.slug}</span>
+                URL: <span className="font-mono">/projects/{idea.portfolio.slug}</span>
               </p>
             )}
 

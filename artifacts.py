@@ -32,6 +32,8 @@ import anthropic
 
 from config import ANTHROPIC_API_KEY, PIPELINE_MODEL as MODEL
 from db import get_client
+# Embed-on-write hook (spec §6.2). Import-safe without `openai`; degrades to a skip.
+from lib.idea_embeddings import ARTIFACTS_GROUPS, embed_on_write
 
 # ── Stage ordering ────────────────────────────────────────────────────────────
 
@@ -888,6 +890,13 @@ def main() -> None:
                 print("\nParsed output (not saved):")
                 print(json.dumps(parsed, indent=2))
                 sys.exit(1)
+
+    # Embed-on-write (spec §6.2) — wired at artifacts completion for parity with
+    # the other stages. ARTIFACTS_GROUPS is empty because §6 does not chunk PRD /
+    # MVP / next-steps / builder-brief, so this is a 0-chunk no-op until that
+    # corpus decision is revisited. The call documents the intended hook point.
+    if not args.dry_run:
+        embed_on_write(args.idea_id, ARTIFACTS_GROUPS, label="artifacts")
 
     print(f"\n{'═' * 62}")
     print("  Artifact chain complete.")

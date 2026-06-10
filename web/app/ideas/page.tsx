@@ -1,19 +1,12 @@
 export const dynamic = "force-dynamic";
 
 import Link from "next/link";
-import { createClient } from "@supabase/supabase-js";
+import { redirect } from "next/navigation";
+import { createClient } from "@/lib/supabase/server";
 import { ideaDisplayName, type Idea } from "@/lib/types";
 
-// Server-side Supabase client (uses env vars at build/request time)
-function serverSupabase() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  );
-}
-
 async function getIdeas(): Promise<Idea[]> {
-  const supabase = serverSupabase();
+  const supabase = await createClient();
   const { data, error } = await supabase
     .from("ideas")
     .select("id, raw_input, domain, state, created_at, triage")
@@ -101,6 +94,13 @@ function IdeaCard({ idea }: { idea: Idea }) {
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 export default async function IdeasPage() {
+  // Private studio index — gate behind auth before reading internal data.
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect("/auth/login");
+
   let ideas: Idea[] = [];
   let fetchError: string | null = null;
 

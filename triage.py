@@ -37,6 +37,9 @@ import anthropic
 
 from config import ANTHROPIC_API_KEY, REASONING_MODEL as MODEL
 from db import get_client
+# Embed-on-write hook (spec §6.2). Import-safe without `openai` installed; the
+# hook degrades to a logged skip rather than breaking triage.
+from lib.idea_embeddings import RETRIAGE_GROUPS, TRIAGE_GROUPS, embed_on_write
 
 # ── Prompts & tool definition ─────────────────────────────────────────────────
 
@@ -671,6 +674,10 @@ def save_idea(idea_data: dict, transcript: list, raw_input: str, domain: str = "
             "created_at": now,
         }).execute()
 
+    # Embed-on-write (spec §6.2) — index this idea's just-written triage fields
+    # (raw_input, kill-assumptions, triage verdict) for semantic retrieval.
+    embed_on_write(idea_id, TRIAGE_GROUPS, label="triage")
+
     return idea_id
 
 
@@ -679,41 +686,48 @@ def save_idea(idea_data: dict, transcript: list, raw_input: str, domain: str = "
 MAX_TURNS = 20  # safety ceiling on interview length
 
 
-def fetch_prior_triages(exclude_id: str | None = None) -> str:
+def _render_prior_block(
+    rows: list,
+    header: str,
+    similarities: dict | None = None,
+) -> str:
     """
-    Fetch triage data from previous ideas to inject as context
-    for adaptive difficulty. Optionally exclude one idea by id
-    (used during re-triage to avoid self-referencing).
-
-    Returns a formatted string block, or empty string if none found.
+    Render prior-triage rows ([{id, triage}]) into a prompt block. Includes each
+    session's verdict reasoning and kill-assumptions (spec §6 — "inject their
+    verdicts and kill-assumptions"). When `similarities` is given (semantic path),
+    annotate each session with its similarity score.
     """
-    db = get_client()
-    result = (
-        db.table("ideas")
-        .select("id, triage")
-        .not_.is_("triage", "null")
-        .order("created_at", desc=True)
-        .limit(10)
-        .execute()
-    )
-
-    if not result.data:
-        return ""
-
-    rows = [r for r in result.data if r["id"] != exclude_id]
-    if not rows:
-        return ""
-
-    lines = ["You have conducted prior triage sessions with this user:\n"]
+    lines = [header + "\n"]
     for i, row in enumerate(rows, 1):
         t = row.get("triage") or {}
+
+        sim = ""
+        if similarities is not None:
+            s = similarities.get(row.get("id"))
+            if s is not None:
+                sim = f" (similarity {s:.2f})"
+
+        reasoning = (t.get("triage_reasoning") or "").strip()
+        if len(reasoning) > 400:
+            reasoning = reasoning[:400] + "…"
+
+        ka_lines = []
+        for a in t.get("kill_assumptions") or []:
+            if isinstance(a, dict):
+                ka_lines.append(f"    - {a.get('text', '')} [{a.get('status', 'untested')}]")
+            else:
+                ka_lines.append(f"    - {a} [untested]")
+        ka_block = "\n".join(ka_lines) if ka_lines else "    (none recorded)"
+
         lines.append(
-            f"Session {i}: \"{t.get('title', 'Untitled')}\"\n"
+            f"Session {i}{sim}: \"{t.get('title', 'Untitled')}\"\n"
             f"  Scores: effort={t.get('effort_score')}, "
             f"impact={t.get('impact_score')}, "
             f"confidence={t.get('confidence')}\n"
             f"  Disposition: {t.get('disposition')}\n"
             f"  Level: {t.get('session_level', 'unknown')}\n"
+            f"  Verdict reasoning: {reasoning or 'none recorded'}\n"
+            f"  Kill assumptions:\n{ka_block}\n"
             f"  Growth observations: "
             f"{t.get('growth_observations', 'none recorded')}\n"
         )
@@ -721,17 +735,141 @@ def fetch_prior_triages(exclude_id: str | None = None) -> str:
     return "\n".join(lines)
 
 
+def _fetch_recent_triage_rows(db, exclude_id: str | None = None, limit: int = 10) -> list:
+    """Recency-ordered prior triages (the pre-retrieval behavior; fallback path)."""
+    result = (
+        db.table("ideas")
+        .select("id, triage")
+        .not_.is_("triage", "null")
+        .order("created_at", desc=True)
+        .limit(limit)
+        .execute()
+    )
+    return [r for r in (result.data or []) if r["id"] != exclude_id]
+
+
+def _fetch_similar_triage_rows(
+    db,
+    query_text: str,
+    exclude_id: str | None = None,
+    top_ideas: int = 5,
+) -> tuple[list, dict]:
+    """
+    Semantic retrieval via the match_embeddings() function (spec §4, §6).
+
+    Embeds `query_text` with the same model as the stored chunks, retrieves the
+    most similar 'idea' chunks, collapses them to distinct ideas (best score per
+    idea), and returns ([{id, triage}], {id: similarity}) ordered by similarity.
+
+    Raises on any failure (no OPENAI_API_KEY, openai not installed, RPC not yet
+    applied, empty table) so the caller can fall back to recency — decision D.
+    """
+    # Lazy import keeps the recency path import-free if `openai` isn't installed.
+    from lib.embed import EMBEDDING_MODEL, embed_text, to_pgvector
+
+    # §6 acceptance criterion 4 — assert query model matches stored model.
+    stored = db.table("embeddings").select("model").limit(1).execute()
+    if stored.data:
+        stored_model = stored.data[0].get("model")
+        if stored_model != EMBEDDING_MODEL:
+            raise RuntimeError(
+                f"embedding model mismatch: stored '{stored_model}' != "
+                f"query '{EMBEDDING_MODEL}' (re-embed required)"
+            )
+
+    query_embedding = to_pgvector(embed_text(query_text))
+    # match_count is per-CHUNK; chunks collapse to fewer distinct ideas, so we
+    # over-fetch chunks to reliably surface ~top_ideas distinct ideas.
+    res = db.rpc(
+        "match_embeddings",
+        {
+            "query_embedding": query_embedding,
+            "match_count": 24,
+            "filter_source_types": ["idea"],
+        },
+    ).execute()
+    hits = res.data or []
+
+    best: dict = {}
+    order: list = []
+    for h in hits:
+        sid = h.get("source_id")
+        if not sid or sid == exclude_id:
+            continue
+        sim = h.get("similarity") or 0.0
+        if sid not in best:
+            best[sid] = sim
+            order.append(sid)
+        elif sim > best[sid]:
+            best[sid] = sim
+
+    top_ids = order[:top_ideas]
+    if not top_ids:
+        return [], {}
+
+    fetched = db.table("ideas").select("id, triage").in_("id", top_ids).execute()
+    by_id = {r["id"]: r for r in (fetched.data or [])}
+    rows = [by_id[i] for i in top_ids if i in by_id and by_id[i].get("triage")]
+    sims = {i: best[i] for i in top_ids}
+    return rows, sims
+
+
+def fetch_prior_triages(query_text: str | None = None, exclude_id: str | None = None) -> str:
+    """
+    Prior-triage context injected into the Socratic prompt for adaptive difficulty.
+
+    Spec §6 (Retrieval & Memory, Layer 0): when `query_text` is given, retrieve the
+    most SEMANTICALLY SIMILAR past ideas via match_embeddings and inject their
+    verdicts and kill-assumptions — the evaluator is informed by genuinely related
+    prior judgments, not just whatever was newest. Falls back to recency-ordered
+    retrieval when no `query_text` is supplied or when semantic retrieval is
+    unavailable (empty embeddings table, missing OPENAI_API_KEY, migration not yet
+    applied) — decision D, augment rather than hard-replace.
+
+    Optionally excludes one idea by id (used during re-triage to avoid self-reference).
+    Returns a formatted string block, or empty string if there's nothing to inject.
+    """
+    db = get_client()
+
+    if query_text and query_text.strip():
+        try:
+            rows, sims = _fetch_similar_triage_rows(db, query_text, exclude_id=exclude_id)
+            if rows:
+                titles = ", ".join(
+                    f"\"{(r.get('triage') or {}).get('title', 'Untitled')}\"" for r in rows
+                )
+                # Observability on demand — show what retrieval surfaced (acceptance 5/6).
+                print(
+                    f"\033[90m  ↪ retrieved {len(rows)} related prior idea(s) "
+                    f"by similarity: {titles}\033[0m",
+                    file=sys.stderr,
+                )
+                return _render_prior_block(
+                    rows,
+                    "You have evaluated related ideas before. These are the most "
+                    "semantically similar past sessions, retrieved by meaning — use them "
+                    "to calibrate difficulty and to notice where this person's thinking "
+                    "has held up or broken down on adjacent ideas:",
+                    similarities=sims,
+                )
+            # No semantic hits (e.g. empty table pre-backfill) — fall through to recency.
+        except Exception as exc:
+            print(
+                f"\033[90m  (semantic retrieval unavailable: {exc} — "
+                f"falling back to recency)\033[0m",
+                file=sys.stderr,
+            )
+
+    rows = _fetch_recent_triage_rows(db, exclude_id=exclude_id)
+    if not rows:
+        return ""
+    return _render_prior_block(
+        rows, "You have conducted prior triage sessions with this user:"
+    )
+
+
 def run_triage() -> str:
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-
-    # Fetch prior session context for adaptive difficulty
-    prior_context = fetch_prior_triages()
-    active_prompt = SYSTEM_PROMPT.replace("{{PRIOR_TRIAGE_CONTEXT}}", prior_context)
-
-    messages: list = []
-    transcript: list = []
-    idea_data: dict | None = None
-    raw_input: str = ""
 
     print("\n" + "═" * 62)
     print("  KSM STUDIO — IDEA TRIAGE")
@@ -739,13 +877,33 @@ def run_triage() -> str:
     print("  Share your idea. Claude will interview you.")
     print("  Ctrl+C to quit at any time.\n")
 
-    # Seed the conversation so Claude opens with its first question
-    messages.append(
-        {"role": "user", "content": "I have a new idea I'd like to triage."}
-    )
-    transcript.append(
-        {"role": "user", "content": "I have a new idea I'd like to triage.", "turn": 0}
-    )
+    # Upfront one-line capture (spec §6, decision A1). This text is the semantic
+    # retrieval query AND the opening user message, so the idea isn't asked twice.
+    print("In one sentence, what's your idea? ", end="", flush=True)
+    try:
+        seed_idea = input().strip()
+    except (EOFError, KeyboardInterrupt):
+        print("\n\nInterview cancelled.")
+        sys.exit(0)
+
+    DEFAULT_SEED = "I have a new idea I'd like to triage."
+    opening_message = seed_idea or DEFAULT_SEED
+
+    # Fetch prior session context for adaptive difficulty — semantic when we have a
+    # seed sentence to retrieve against (spec §6), recency fallback otherwise.
+    prior_context = fetch_prior_triages(query_text=seed_idea or None)
+    active_prompt = SYSTEM_PROMPT.replace("{{PRIOR_TRIAGE_CONTEXT}}", prior_context)
+
+    messages: list = []
+    transcript: list = []
+    idea_data: dict | None = None
+    # Seed the persisted raw_input with the one-liner; the in-loop capture below
+    # still upgrades it if the user left this blank.
+    raw_input: str = seed_idea
+
+    # Seed the conversation with the user's one-line idea.
+    messages.append({"role": "user", "content": opening_message})
+    transcript.append({"role": "user", "content": opening_message, "turn": 0})
 
     for turn in range(MAX_TURNS):
         # ── Claude speaks ────────────────────────────────────────────────────
@@ -981,6 +1139,11 @@ def save_retriage(idea_id: str, new_triage_data: dict, transcript: list) -> None
             "created_at": now,
         }).execute()
 
+    # Embed-on-write (spec §6.2) — re-triage rewrites the verdict and kill
+    # assumptions; re-embed those groups so retrieval reflects the new judgment.
+    # raw_input is unchanged by re-triage and is intentionally not re-embedded.
+    embed_on_write(idea_id, RETRIAGE_GROUPS, label="retriage")
+
 
 def run_retriage(idea_id: str) -> None:
     """
@@ -1010,8 +1173,12 @@ def run_retriage(idea_id: str) -> None:
     # Build re-triage context
     retriage_context = _build_retriage_context(idea, current_triage, development, db=db)
 
-    # Fetch prior triages across other ideas for growth tracking
-    prior_context = fetch_prior_triages(exclude_id=idea_id)
+    # Fetch prior triages across other ideas for growth tracking — semantic
+    # retrieval against this idea's own text (spec §6), excluding itself.
+    prior_context = fetch_prior_triages(
+        query_text=idea.get("raw_input") or current_triage.get("title"),
+        exclude_id=idea_id,
+    )
 
     # Combine both into the prompt
     combined_context = retriage_context

@@ -1,8 +1,8 @@
 export const dynamic = "force-dynamic";
 
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
-import { createClient } from "@supabase/supabase-js";
+import { createClient } from "@/lib/supabase/server";
 import {
   ideaDisplayName,
   type Idea,
@@ -11,15 +11,8 @@ import {
   type Conversation,
 } from "@/lib/types";
 
-function serverSupabase() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  );
-}
-
 async function getIdea(id: string): Promise<Idea | null> {
-  const supabase = serverSupabase();
+  const supabase = await createClient();
   const { data, error } = await supabase
     .from("ideas")
     .select("id, raw_input, domain, state, created_at, triage, development")
@@ -30,7 +23,7 @@ async function getIdea(id: string): Promise<Idea | null> {
 }
 
 async function getJournalEntries(ideaId: string): Promise<JournalEntry[]> {
-  const supabase = serverSupabase();
+  const supabase = await createClient();
   const { data } = await supabase
     .from("journal_entries")
     .select("*")
@@ -40,7 +33,7 @@ async function getJournalEntries(ideaId: string): Promise<JournalEntry[]> {
 }
 
 async function getConversations(ideaId: string): Promise<Conversation[]> {
-  const supabase = serverSupabase();
+  const supabase = await createClient();
   const { data } = await supabase
     .from("conversations")
     .select("*")
@@ -50,7 +43,7 @@ async function getConversations(ideaId: string): Promise<Conversation[]> {
 }
 
 async function getMessages(ideaId: string): Promise<Message[]> {
-  const supabase = serverSupabase();
+  const supabase = await createClient();
   const { data } = await supabase
     .from("messages")
     .select("*")
@@ -526,6 +519,15 @@ export default async function IdeaDetailPage({
     tabParam === "artifacts" || tabParam === "conversation" || tabParam === "journal"
       ? tabParam
       : "overview";
+
+  // Private studio review page — gate behind auth. Internal evaluation data
+  // (triage scores, reasoning, kill assumptions, research) is rendered here, so
+  // only the authenticated operator may view it.
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect("/auth/login");
 
   const [idea, journalEntries, conversations, messages] = await Promise.all([
     getIdea(id),

@@ -1,90 +1,59 @@
-import type { ChatbotContext } from "@/lib/types";
+import type { PublicIdea } from "@/lib/portfolio/public-projection";
+import type { RenderedSection } from "@/lib/types";
 
 interface ComposeArgs {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  idea: Record<string, any>;
-  chatbotContext: ChatbotContext;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  journal: any[];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  refinements: any[];
+  /**
+   * Deny-by-default public projection. The composer is intentionally typed to
+   * accept ONLY this — it has no access to triage / development / outcomes /
+   * raw_input / journal / refinements, so internal data cannot leak into the
+   * assembled public context.
+   */
+  publicIdea: PublicIdea;
   sharedRefusals: string[];
 }
 
-function buildDevBlock(dev: Record<string, unknown>): string {
-  if (!dev?.problem_statement) return "";
-
-  const personas = ((dev.personas as Array<Record<string, string>>) ?? [])
-    .map(
-      (p) =>
-        `- ${p.label}: ${p.description}\n  Their pain: ${p.pain}\n  What success looks like for them: ${p.gain}`,
-    )
-    .join("\n");
-
-  const openQuestions = ((dev.open_questions as string[]) ?? [])
-    .map((q) => `- ${q}`)
-    .join("\n");
-
-  return `### What I am
-Problem I solve: ${dev.problem_statement}
-
-Core hypothesis: ${dev.core_hypothesis ?? ""}
-
-Who I am built for:
-${personas}
-Questions still unresolved about me:
-${openQuestions}`;
+/**
+ * Render the already-public portfolio sections into plain text the agent can
+ * reference. This is the same content a visitor sees on the public page, so it
+ * is safe. Best-effort text extraction across known archetype content shapes.
+ */
+function buildPublicSummaryBlock(sections: RenderedSection[]): string {
+  const parts: string[] = [];
+  for (const section of sections) {
+    if (section.hidden) continue;
+    const c = section.content as Record<string, unknown> | null | undefined;
+    if (!c) continue;
+    const text = extractSectionText(c);
+    if (text.trim()) parts.push(text.trim());
+  }
+  if (!parts.length) return "";
+  return `### What my public page says about me\n${parts.join("\n\n")}`;
 }
 
-function buildRefinementsBlock(
-  refinements: Array<Record<string, unknown>>,
-): string {
-  if (!refinements.length) return "";
-  const text = refinements
-    .map(
-      (r) =>
-        `[${String(r.created_at ?? "").slice(0, 10)}] ${r.artifact} / ${r.field_path} changed — ${r.reason}\n  Now: ${(r.new_value as Record<string, unknown>)?.value ?? ""}`,
-    )
-    .join("\n");
-  return `### How my thinking has evolved\n${text}`;
-}
-
-function buildJournalBlock(journal: Array<Record<string, unknown>>): string {
-  // Filter entries that could reveal internal doubt in public context
-  const publicSafe = journal.filter(
-    (e) => !["triage_insight", "extraction"].includes(String(e.type ?? "")),
-  );
-  if (!publicSafe.length) return "";
-  const text = publicSafe
-    .map(
-      (e) =>
-        `[${String(e.created_at ?? "").slice(0, 10)}] [${e.type}] ${e.content}` +
-        (e.promoted_to ? " → This became a refinement." : ""),
-    )
-    .join("\n");
-  return `### What has been observed and decided\n${text}`;
-}
-
-function buildOutcomesBlock(
-  outcomes: Record<string, unknown> | null | undefined,
-): string {
-  if (!outcomes?.entries || !(outcomes.entries as unknown[]).length) return "";
-  const text = (outcomes.entries as Array<Record<string, string>>)
-    .map(
-      (e) =>
-        `[${String(e.date ?? "").slice(0, 10)}] [${e.type}] ${e.title}: ${e.description}`,
-    )
-    .join("\n");
-  return `### What has actually happened\nCurrent status: ${outcomes.current_status ?? "unknown"}\n${text}`;
+function extractSectionText(c: Record<string, unknown>): string {
+  const lines: string[] = [];
+  if (typeof c.text === "string") lines.push(c.text);
+  if (Array.isArray(c.paragraphs)) lines.push((c.paragraphs as string[]).join("\n"));
+  if (typeof c.quote === "string") lines.push(`"${c.quote}"`);
+  if (typeof c.intro === "string") lines.push(c.intro);
+  if (Array.isArray(c.entries)) {
+    for (const e of c.entries as Array<Record<string, string>>) {
+      lines.push([e.title, e.body].filter(Boolean).join(": "));
+    }
+  }
+  if (Array.isArray(c.items)) {
+    for (const it of c.items as Array<Record<string, string>>) {
+      lines.push([it.label, it.body ?? it.value].filter(Boolean).join(": "));
+    }
+  }
+  return lines.filter(Boolean).join("\n");
 }
 
 export function composeSystemPrompt({
-  idea,
-  chatbotContext,
-  journal,
-  refinements,
+  publicIdea,
   sharedRefusals,
 }: ComposeArgs): string {
+  const { chatbotContext } = publicIdea;
   const {
     voice_dna,
     identity_statement,
@@ -107,15 +76,8 @@ Where I am right now: ${current_state}.
 
 I'm genuinely curious about: ${open_curiosities.join("; ")}.`;
 
-  const outcomes = (idea.outcomes as Record<string, unknown>) ?? null;
-  const createdAt = idea.created_at
-    ? String(idea.created_at).slice(0, 10)
-    : "unknown";
-
   const knowledgeSections = [
-    buildRefinementsBlock(refinements),
-    buildJournalBlock(journal),
-    buildOutcomesBlock(outcomes),
+    buildPublicSummaryBlock(publicIdea.publicSummary?.sections ?? []),
   ]
     .filter((s) => s.trim())
     .join("\n\n");
@@ -131,10 +93,9 @@ I'm genuinely curious about: ${open_curiosities.join("; ")}.`;
 ## What I know
 
 ### Who I am
-Raw idea: ${idea.raw_input ?? ""}
-Domain: ${idea.domain ?? ""}
-Current state: ${idea.state ?? ""}
-Created: ${createdAt}
+Domain: ${publicIdea.domain ?? ""}
+Current state: ${publicIdea.state ?? ""}
+Created: ${publicIdea.created_at}
 
 ${knowledgeSections}
 
