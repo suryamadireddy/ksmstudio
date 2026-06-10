@@ -1,0 +1,248 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 750" width="1200" height="750">
+
+  <!-- background -->
+  <rect width="1200" height="750" fill="#faf9f6"/>
+
+  <!-- title -->
+  <text x="60" y="42"
+        font-family="Georgia, 'Times New Roman', serif"
+        font-size="14" fill="#16161a" letter-spacing="0.3">KSM Studio — Agent Pipeline Architecture</text>
+
+  <!-- ─────────────────────────────────────────────────────────────
+       TIER 1  TRIAGE    y=62, h=138, bottom=200
+       ───────────────────────────────────────────────────────────── -->
+  <rect x="60" y="62" width="940" height="138"
+        fill="none" stroke="#16161a" stroke-width="1"/>
+
+  <text x="80" y="84"
+        font-family="ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, monospace"
+        font-size="9" fill="#6b6b73" letter-spacing="2">TIER 1</text>
+
+  <text x="80" y="111"
+        font-family="Georgia, 'Times New Roman', serif"
+        font-size="21" fill="#16161a">Triage</text>
+
+  <text x="80" y="131"
+        font-family="Georgia, 'Times New Roman', serif"
+        font-size="11" fill="#6b6b73" font-style="italic">Socratic interview — six dimensions, one question at a time</text>
+
+  <text x="80" y="152"
+        font-family="ui-monospace, 'Cascadia Code', Menlo, monospace"
+        font-size="8.5" fill="#6b6b73">promises</text>
+  <text x="140" y="152"
+        font-family="ui-monospace, 'Cascadia Code', Menlo, monospace"
+        font-size="8.5" fill="#16161a">structured output: effort_score, impact_score, confidence, kill_assumptions, disposition, triage_reasoning</text>
+
+  <text x="80" y="168"
+        font-family="ui-monospace, 'Cascadia Code', Menlo, monospace"
+        font-size="8.5" fill="#6b6b73">refuses </text>
+  <text x="140" y="168"
+        font-family="ui-monospace, 'Cascadia Code', Menlo, monospace"
+        font-size="8.5" fill="#16161a">score disclosure during session — self-scoring redirects — praise for surface-level answers</text>
+
+  <!-- seam 1  y=200–232  contract: triage -->
+  <text x="80" y="213"
+        font-family="ui-monospace, 'Cascadia Code', Menlo, monospace"
+        font-size="8" fill="#6b6b73">contract: triage</text>
+  <text x="80" y="225"
+        font-family="ui-monospace, 'Cascadia Code', Menlo, monospace"
+        font-size="8.5" fill="#16161a">{ effort_score, impact_score, confidence, kill_assumptions, disposition }</text>
+
+  <!-- ─────────────────────────────────────────────────────────────
+       TIER 2  SHARPENING    y=232, h=138, bottom=370
+       ───────────────────────────────────────────────────────────── -->
+  <rect x="60" y="232" width="940" height="138"
+        fill="none" stroke="#16161a" stroke-width="1"/>
+
+  <text x="80" y="254"
+        font-family="ui-monospace, 'Cascadia Code', Menlo, monospace"
+        font-size="9" fill="#6b6b73" letter-spacing="2">TIER 2</text>
+
+  <text x="80" y="281"
+        font-family="Georgia, 'Times New Roman', serif"
+        font-size="21" fill="#16161a">Sharpening</text>
+
+  <text x="80" y="301"
+        font-family="Georgia, 'Times New Roman', serif"
+        font-size="11" fill="#6b6b73" font-style="italic">Web-grounded research — empirical problem definition before any artifact is created</text>
+
+  <text x="80" y="322"
+        font-family="ui-monospace, 'Cascadia Code', Menlo, monospace"
+        font-size="8.5" fill="#6b6b73">promises</text>
+  <text x="140" y="322"
+        font-family="ui-monospace, 'Cascadia Code', Menlo, monospace"
+        font-size="8.5" fill="#16161a">problem_statement (no solution language), core_hypothesis, competitive_landscape, personas &#x2264; 2, open_questions</text>
+
+  <text x="80" y="338"
+        font-family="ui-monospace, 'Cascadia Code', Menlo, monospace"
+        font-size="8.5" fill="#6b6b73">refuses </text>
+  <text x="140" y="338"
+        font-family="ui-monospace, 'Cascadia Code', Menlo, monospace"
+        font-size="8.5" fill="#16161a">solution language in problem statement — PRD, feature lists, or personas — unverified data</text>
+
+  <!-- seam 2  y=370–402  contract: development (sharpening phase) -->
+  <text x="80" y="383"
+        font-family="ui-monospace, 'Cascadia Code', Menlo, monospace"
+        font-size="8" fill="#6b6b73">contract: development</text>
+  <text x="80" y="395"
+        font-family="ui-monospace, 'Cascadia Code', Menlo, monospace"
+        font-size="8.5" fill="#16161a">{ problem_statement, core_hypothesis, competitive_landscape, personas, open_questions }</text>
+
+  <!-- ─────────────────────────────────────────────────────────────
+       TIER 3  ARTIFACTS    y=402, h=138, bottom=540
+       ───────────────────────────────────────────────────────────── -->
+  <rect x="60" y="402" width="940" height="138"
+        fill="none" stroke="#16161a" stroke-width="1"/>
+
+  <text x="80" y="424"
+        font-family="ui-monospace, 'Cascadia Code', Menlo, monospace"
+        font-size="9" fill="#6b6b73" letter-spacing="2">TIER 3</text>
+
+  <text x="80" y="451"
+        font-family="Georgia, 'Times New Roman', serif"
+        font-size="21" fill="#16161a">Artifacts</text>
+
+  <text x="80" y="471"
+        font-family="Georgia, 'Times New Roman', serif"
+        font-size="11" fill="#6b6b73" font-style="italic">Sequential four-pass orchestrator — each pass reads all prior outputs</text>
+
+  <text x="80" y="492"
+        font-family="ui-monospace, 'Cascadia Code', Menlo, monospace"
+        font-size="8.5" fill="#6b6b73">promises</text>
+  <text x="140" y="492"
+        font-family="ui-monospace, 'Cascadia Code', Menlo, monospace"
+        font-size="8.5" fill="#16161a">prd &#x2192; mvp_scope &#x2192; next_steps &#x2192; builder_brief, each pass consuming all prior context</text>
+
+  <text x="80" y="508"
+        font-family="ui-monospace, 'Cascadia Code', Menlo, monospace"
+        font-size="8.5" fill="#6b6b73">refuses </text>
+  <text x="140" y="508"
+        font-family="ui-monospace, 'Cascadia Code', Menlo, monospace"
+        font-size="8.5" fill="#16161a">features not established in PRD — speculation beyond prior outputs — filler or optimistic language</text>
+
+  <!-- seam 3  y=540–572  contract: development (artifacts phase) -->
+  <text x="80" y="553"
+        font-family="ui-monospace, 'Cascadia Code', Menlo, monospace"
+        font-size="8" fill="#6b6b73">contract: development</text>
+  <text x="80" y="565"
+        font-family="ui-monospace, 'Cascadia Code', Menlo, monospace"
+        font-size="8.5" fill="#16161a">{ prd, mvp_scope, next_steps, builder_brief }</text>
+
+  <!-- ─────────────────────────────────────────────────────────────
+       TIER 4  DISTILLATION    y=572, h=138, bottom=710
+       ───────────────────────────────────────────────────────────── -->
+  <rect x="60" y="572" width="940" height="138"
+        fill="none" stroke="#16161a" stroke-width="1"/>
+
+  <text x="80" y="594"
+        font-family="ui-monospace, 'Cascadia Code', Menlo, monospace"
+        font-size="9" fill="#6b6b73" letter-spacing="2">TIER 4</text>
+
+  <text x="80" y="621"
+        font-family="Georgia, 'Times New Roman', serif"
+        font-size="21" fill="#16161a">Distillation</text>
+
+  <text x="80" y="641"
+        font-family="Georgia, 'Times New Roman', serif"
+        font-size="11" fill="#6b6b73" font-style="italic">Three-pass portfolio renderer — character derived before public voice is composed</text>
+
+  <text x="80" y="662"
+        font-family="ui-monospace, 'Cascadia Code', Menlo, monospace"
+        font-size="8.5" fill="#6b6b73">promises</text>
+  <text x="140" y="662"
+        font-family="ui-monospace, 'Cascadia Code', Menlo, monospace"
+        font-size="8.5" fill="#16161a">public_summary and chatbot_context in the idea's own voice — presentation_spec, voice samples</text>
+
+  <text x="80" y="678"
+        font-family="ui-monospace, 'Cascadia Code', Menlo, monospace"
+        font-size="8.5" fill="#6b6b73">refuses </text>
+  <text x="140" y="678"
+        font-family="ui-monospace, 'Cascadia Code', Menlo, monospace"
+        font-size="8.5" fill="#16161a">triage scores, kill-assumption language, or private research in any public-facing output</text>
+
+  <!-- ─────────────────────────────────────────────────────────────
+       PIPELINE LINE  x=1048, y=62–710
+       Nine pass ticks with numbers and labels
+       ───────────────────────────────────────────────────────────── -->
+  <line x1="1048" y1="62" x2="1048" y2="710"
+        stroke="#6b6b73" stroke-width="1"/>
+
+  <text x="1048" y="54" text-anchor="middle"
+        font-family="ui-monospace, 'Cascadia Code', Menlo, monospace"
+        font-size="8" fill="#6b6b73" letter-spacing="1.5">PASSES</text>
+
+  <!-- tier-boundary marks (lighter, 0.75px) -->
+  <line x1="1042" y1="200" x2="1054" y2="200" stroke="#6b6b73" stroke-width="0.75"/>
+  <line x1="1042" y1="232" x2="1054" y2="232" stroke="#6b6b73" stroke-width="0.75"/>
+  <line x1="1042" y1="370" x2="1054" y2="370" stroke="#6b6b73" stroke-width="0.75"/>
+  <line x1="1042" y1="402" x2="1054" y2="402" stroke="#6b6b73" stroke-width="0.75"/>
+  <line x1="1042" y1="540" x2="1054" y2="540" stroke="#6b6b73" stroke-width="0.75"/>
+  <line x1="1042" y1="572" x2="1054" y2="572" stroke="#6b6b73" stroke-width="0.75"/>
+
+  <!-- pass 1  interview  (center of tier 1: 62+69=131) -->
+  <line x1="1042" y1="131" x2="1054" y2="131" stroke="#16161a" stroke-width="1"/>
+  <text x="1060" y="128"
+        font-family="ui-monospace, Menlo, monospace" font-size="9" fill="#16161a">1</text>
+  <text x="1072" y="128"
+        font-family="ui-monospace, Menlo, monospace" font-size="8" fill="#6b6b73">interview</text>
+
+  <!-- pass 2  research  (center of tier 2: 232+69=301) -->
+  <line x1="1042" y1="301" x2="1054" y2="301" stroke="#16161a" stroke-width="1"/>
+  <text x="1060" y="298"
+        font-family="ui-monospace, Menlo, monospace" font-size="9" fill="#16161a">2</text>
+  <text x="1072" y="298"
+        font-family="ui-monospace, Menlo, monospace" font-size="8" fill="#6b6b73">research</text>
+
+  <!-- passes 3–6  artifacts  (tier 3: y=402–540, 138px / 4 = 34.5px each) -->
+  <!-- pass 3  prd  y=402+17=419 -->
+  <line x1="1042" y1="419" x2="1054" y2="419" stroke="#16161a" stroke-width="1"/>
+  <text x="1060" y="416"
+        font-family="ui-monospace, Menlo, monospace" font-size="9" fill="#16161a">3</text>
+  <text x="1072" y="416"
+        font-family="ui-monospace, Menlo, monospace" font-size="8" fill="#6b6b73">prd</text>
+
+  <!-- pass 4  mvp_scope  y=402+52=454 -->
+  <line x1="1042" y1="454" x2="1054" y2="454" stroke="#16161a" stroke-width="1"/>
+  <text x="1060" y="451"
+        font-family="ui-monospace, Menlo, monospace" font-size="9" fill="#16161a">4</text>
+  <text x="1072" y="451"
+        font-family="ui-monospace, Menlo, monospace" font-size="8" fill="#6b6b73">mvp_scope</text>
+
+  <!-- pass 5  next_steps  y=402+86=488 -->
+  <line x1="1042" y1="488" x2="1054" y2="488" stroke="#16161a" stroke-width="1"/>
+  <text x="1060" y="485"
+        font-family="ui-monospace, Menlo, monospace" font-size="9" fill="#16161a">5</text>
+  <text x="1072" y="485"
+        font-family="ui-monospace, Menlo, monospace" font-size="8" fill="#6b6b73">next_steps</text>
+
+  <!-- pass 6  builder_brief  y=402+121=523 -->
+  <line x1="1042" y1="523" x2="1054" y2="523" stroke="#16161a" stroke-width="1"/>
+  <text x="1060" y="520"
+        font-family="ui-monospace, Menlo, monospace" font-size="9" fill="#16161a">6</text>
+  <text x="1072" y="520"
+        font-family="ui-monospace, Menlo, monospace" font-size="8" fill="#6b6b73">builder_brief</text>
+
+  <!-- passes 7–9  distillation  (tier 4: y=572–710, 138px / 3 = 46px each) -->
+  <!-- pass 7  character  y=572+23=595 -->
+  <line x1="1042" y1="595" x2="1054" y2="595" stroke="#16161a" stroke-width="1"/>
+  <text x="1060" y="592"
+        font-family="ui-monospace, Menlo, monospace" font-size="9" fill="#16161a">7</text>
+  <text x="1072" y="592"
+        font-family="ui-monospace, Menlo, monospace" font-size="8" fill="#6b6b73">character</text>
+
+  <!-- pass 8  presentation  y=572+69=641 -->
+  <line x1="1042" y1="641" x2="1054" y2="641" stroke="#16161a" stroke-width="1"/>
+  <text x="1060" y="638"
+        font-family="ui-monospace, Menlo, monospace" font-size="9" fill="#16161a">8</text>
+  <text x="1072" y="638"
+        font-family="ui-monospace, Menlo, monospace" font-size="8" fill="#6b6b73">presentation</text>
+
+  <!-- pass 9  content  y=572+115=687 -->
+  <line x1="1042" y1="687" x2="1054" y2="687" stroke="#16161a" stroke-width="1"/>
+  <text x="1060" y="684"
+        font-family="ui-monospace, Menlo, monospace" font-size="9" fill="#16161a">9</text>
+  <text x="1072" y="684"
+        font-family="ui-monospace, Menlo, monospace" font-size="8" fill="#6b6b73">content</text>
+
+</svg>

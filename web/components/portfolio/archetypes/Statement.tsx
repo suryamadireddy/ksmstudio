@@ -3,6 +3,10 @@ export interface StatementContent {
 }
 
 export function Statement({ text }: StatementContent) {
+  if (typeof text !== "string") {
+    return null;
+  }
+
   return (
     <section className="py-20 md:py-48">
       <div className="mx-auto max-w-6xl px-8 md:px-10">

@@ -15,7 +15,7 @@ const TABS = [
 
 type Tab = "brief" | "synthesis" | "prd";
 
-export function ArtifactExplorer({ preselected, intro }: ArtifactExplorerContent) {
+function ArtifactExplorerInner({ preselected, intro }: ArtifactExplorerContent) {
   const [active, setActive] = useState<Tab>(preselected);
 
   return (
@@ -53,4 +53,15 @@ export function ArtifactExplorer({ preselected, intro }: ArtifactExplorerContent
       </div>
     </section>
   );
+}
+
+export function ArtifactExplorer(props: ArtifactExplorerContent) {
+  if (props.preselected !== "brief" && props.preselected !== "synthesis" && props.preselected !== "prd") {
+    return null;
+  }
+  if (typeof props.intro !== "string") {
+    return null;
+  }
+
+  return <ArtifactExplorerInner {...props} />;
 }

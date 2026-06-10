@@ -33,6 +33,8 @@ import anthropic
 
 from config import ANTHROPIC_API_KEY, PIPELINE_MODEL as MODEL
 from db import get_client
+# Embed-on-write hook (spec §6.2). Import-safe without `openai`; degrades to a skip.
+from lib.idea_embeddings import SHARPEN_GROUPS, embed_on_write
 
 # ── System prompt ─────────────────────────────────────────────────────────────
 
@@ -388,6 +390,10 @@ def main() -> None:
         print("\nParsed development object (not saved):")
         print(json.dumps(development, indent=2))
         sys.exit(1)
+
+    # Embed-on-write (spec §6.2) — index the sharpening fields just written
+    # (problem statement, core hypothesis, personas, open questions).
+    embed_on_write(idea_id, SHARPEN_GROUPS, label="sharpen")
 
     # ── Summary ───────────────────────────────────────────────────────────────
     personas = development.get("personas", [])

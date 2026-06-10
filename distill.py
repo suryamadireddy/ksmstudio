@@ -181,6 +181,44 @@ Every section uses one of these archetypes:
 10. signature_slot — the one custom component for this idea.
 11. conversation_invitation — the chatbot entry point.
 
+## The layout template
+
+You also pick a layout template that determines the spatial character
+of the page. You have three options:
+
+### clean
+
+Mood: clean, simple, pure. Single column, generous whitespace.
+Confidence through restraint. Nothing needs decoration. The content
+is the whole point. Best for: ideas whose strength is clarity of
+thought, ideas at early stages, ideas where quiet presentation
+respects the subject.
+
+### showcase
+
+Mood: makes the why easy. Two-column layout: the signature element
+pins to one side while the content explains beside it. The visitor
+sees the thing and understands the thing in the same moment. Best
+for: ideas with a strong visual or interactive signature that IS
+the argument, ideas whose domain is inherently visual, ideas where
+the physical object or artifact is the strongest communication.
+
+### aesthetic
+
+Mood: makes the visitor gasp. Full-viewport hero on open, asymmetric
+grid below. Ambitious typography. Designed to stop you. Best for:
+ideas whose character is dramatic or formative, ideas with a
+compelling first impression, ideas where emotional response matters
+as much as understanding.
+
+You must pick exactly one. Justify in one sentence (layout_template_rationale).
+Base your choice on the character card and the nature of the idea,
+not on what would make the page "impressive." A quiet idea gets
+clean. A bold idea gets aesthetic. Not the other way around.
+
+If the user's creative brief contradicts your template choice, follow
+the brief but note the tension in your rationale.
+
 ## What you output
 
 Return a PresentationSpec with:
@@ -236,6 +274,30 @@ Content shape per archetype:
   - artifact_explorer: { preselected: "brief"|"synthesis"|"prd", intro }
   - signature_slot: { intro? }
   - conversation_invitation: { intro, prompt_suggestions: string[] }
+
+## Content contract — what may and may not appear in chatbot_context
+
+current_state:
+  ALLOWED — where the idea stands as the idea would describe it to a 
+  curious visitor. What exists, what's been built, what's being tested.
+  FORBIDDEN — internal research findings, triage scores, kill assumption 
+  language, phrases like "empirically untested", "weak demand signals", 
+  "LLM summarization question", or any framing that reads as an 
+  internal evaluation.
+
+idea_specific_refusals:
+  ALLOWED — what the idea will not do, written in the idea's own voice 
+  as principled positions. "Will not X" is fine.
+  FORBIDDEN — any reason that references internal research. Never 
+  "because the research showed Y" or "because the framing bias question 
+  is unresolved". The refusal is the position, not the reasoning behind it.
+
+open_curiosities:
+  ALLOWED — genuine intellectual questions the idea holds about itself, 
+  its users, and its domain. These are public. Write them as things a 
+  thoughtful founder would say out loud to a visitor.
+  FORBIDDEN — any question that is actually a kill assumption in disguise 
+  (e.g., "whether there is sufficient demand" framed as curiosity).
 
 ## Rules
 
@@ -309,6 +371,11 @@ COMPLETE_PRESENTATION_TOOL = {
                 "enum": ["technical", "editorial", "playful", "austere", "warm"],
             },
             "visual_register_rationale": {"type": "string"},
+            "layout_template": {
+                "type": "string",
+                "enum": ["clean", "showcase", "aesthetic"],
+            },
+            "layout_template_rationale": {"type": "string"},
             "sections": {
                 "type": "array",
                 "items": {
@@ -349,8 +416,16 @@ COMPLETE_PRESENTATION_TOOL = {
                              "placement", "rationale"],
             },
         },
-        "required": ["accent_color", "accent_color_rationale", "visual_register",
-                     "visual_register_rationale", "sections", "signature_element"],
+        "required": [
+            "accent_color",
+            "accent_color_rationale",
+            "visual_register",
+            "visual_register_rationale",
+            "layout_template",
+            "layout_template_rationale",
+            "sections",
+            "signature_element",
+        ],
     },
 }
 

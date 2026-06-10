@@ -5,16 +5,16 @@ export type PublicProjectCard = {
   title: string;
   slug: string;
   summary?: string | null;
-  rawIdea?: string | null;
   coverImage: string;
 };
 
 export async function getFeaturedPublicProjects(): Promise<PublicProjectCard[]> {
   const supabase = await createClient();
+  // Reads the public-safe view: only id, domain, state, created_at, portfolio.
+  // No raw_input / triage / development / outcomes are reachable here.
   const { data } = await supabase
-    .from("ideas")
-    .select("id, raw_input, portfolio")
-    .eq("published", true)
+    .from("ideas_public")
+    .select("id, portfolio")
     .order("created_at", { ascending: false })
     .limit(8);
 
@@ -45,7 +45,6 @@ export async function getFeaturedPublicProjects(): Promise<PublicProjectCard[]> 
         title: portfolio.headline,
         slug: portfolio.slug,
         summary,
-        rawIdea: row.raw_input,
         coverImage: "/placeholder.svg",
       },
     ];

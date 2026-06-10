@@ -18,7 +18,7 @@ import RefinementsPanel from "./RefinementsPanel";
 import ConversationsPanel from "./ConversationsPanel";
 import OutcomesPanel from "./OutcomesPanel";
 import PublishToggle from "./PublishToggle";
-import { PortfolioTab } from "./PortfolioTab";
+import { WorkspaceTab } from "./WorkspaceTab";
 
 type Tab =
   | "overview"
@@ -27,7 +27,7 @@ type Tab =
   | "refinements"
   | "conversations"
   | "outcomes"
-  | "portfolio";
+  | "workspace";
 
 const TABS: { id: Tab; label: string; requiresDev?: boolean }[] = [
   { id: "overview", label: "Overview" },
@@ -36,7 +36,7 @@ const TABS: { id: Tab; label: string; requiresDev?: boolean }[] = [
   { id: "journal", label: "Journal" },
   { id: "refinements", label: "Refinements" },
   { id: "conversations", label: "Conversations" },
-  { id: "portfolio", label: "Portfolio", requiresDev: true },
+  { id: "workspace", label: "Workspace", requiresDev: true },
 ];
 
 function Prose({ children }: { children: React.ReactNode }) {
@@ -282,7 +282,7 @@ function OverviewTab({ idea }: { idea: Idea }) {
   const t = idea.triage;
   const d = idea.development;
   return (
-    <div>
+    <div className="flex flex-col">
       <RetriagePendingSection idea={idea} />
       <Section title="Original Idea">
         <Prose>{idea.raw_input}</Prose>
@@ -611,11 +611,13 @@ export default function IdeaDetailShell({
   activeTab: string;
 }) {
   const name = ideaDisplayName(idea);
-  const tab = (TABS.find((t) => t.id === activeTab)?.id ?? "overview") as Tab;
+  const normalizedTab =
+    activeTab === "portfolio" ? "workspace" : activeTab;
+  const tab = (TABS.find((t) => t.id === normalizedTab)?.id ?? "overview") as Tab;
   const baseHref = `/studio/ideas/${idea.id}`;
 
   return (
-    <div>
+    <div className="flex w-full flex-col pb-10">
       {/* Back */}
       <Link
         href="/studio"
@@ -639,9 +641,17 @@ export default function IdeaDetailShell({
         <PublishToggle idea={idea} />
       </div>
 
-      <div className="grid gap-8 lg:grid-cols-[1fr_260px]">
-        {/* Left: tabs + content */}
-        <div>
+      <div
+        className={
+          tab === "workspace" ? "w-full" : "grid w-full gap-8 lg:grid-cols-[minmax(0,1fr)_260px]"
+        }
+      >
+        {/* Main column: full width workspace; reading tabs constrained to max-w-5xl */}
+        <div
+          className={
+            tab === "workspace" ? "min-w-0 w-full" : "mx-auto min-w-0 w-full max-w-5xl"
+          }
+        >
           {/* Pipeline banner + re-triage button (overview tab only) */}
           {tab === "overview" && (
             <>
@@ -702,11 +712,11 @@ export default function IdeaDetailShell({
             />
           )}
           {tab === "outcomes" && <OutcomesPanel idea={idea} />}
-          {tab === "portfolio" && <PortfolioTab idea={idea} />}
+          {tab === "workspace" && <WorkspaceTab idea={idea} />}
         </div>
 
-        {/* Right: sidebar */}
-        <IdeaSidebar idea={idea} />
+        {/* Right: triage / disposition — hidden on Workspace so the editor uses full width */}
+        {tab !== "workspace" ? <IdeaSidebar idea={idea} /> : null}
       </div>
     </div>
   );

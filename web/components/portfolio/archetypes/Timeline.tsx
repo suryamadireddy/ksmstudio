@@ -9,6 +9,20 @@ export interface TimelineContent {
 }
 
 export function Timeline({ entries }: TimelineContent) {
+  if (
+    !entries ||
+    !Array.isArray(entries) ||
+    entries.some(
+      (e) =>
+        !e ||
+        typeof e.date !== "string" ||
+        typeof e.title !== "string" ||
+        typeof e.body !== "string",
+    )
+  ) {
+    return null;
+  }
+
   return (
     <section className="py-16 md:py-24">
       <div className="mx-auto max-w-6xl px-8 md:px-10">

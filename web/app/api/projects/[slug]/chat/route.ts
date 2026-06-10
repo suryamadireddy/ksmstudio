@@ -2,6 +2,7 @@ import { Anthropic } from "@anthropic-ai/sdk";
 import { CONVERSE_MODEL } from "@/lib/models";
 import { SHARED_REFUSALS } from "@/lib/portfolio/refusals";
 import { composeSystemPrompt } from "@/lib/portfolio/compose-system-prompt";
+import { toPublicIdea } from "@/lib/portfolio/public-projection";
 import { createClient } from "@/lib/supabase/server";
 import { checkRateLimit } from "@/lib/portfolio/rate-limit";
 
@@ -21,12 +22,13 @@ export async function POST(
   }
 
   const supabase = await createClient();
+  // Deny-by-default: read the public-safe view, which exposes ONLY
+  // id, domain, state, created_at, portfolio (already filtered to published
+  // rows). No triage / development / outcomes / raw_input is reachable here, so
+  // the public agent can never receive internal data.
   const { data: row } = await supabase
-    .from("ideas")
-    .select(
-      "id, raw_input, domain, state, created_at, triage, development, outcomes, portfolio",
-    )
-    .eq("published", true)
+    .from("ideas_public")
+    .select("id, domain, state, created_at, portfolio")
     .filter("portfolio->>slug", "eq", slug)
     .single();
 
@@ -41,24 +43,8 @@ export async function POST(
     return Response.json({ error: "no_active_version" }, { status: 500 });
   }
 
-  const [journalRes, refinementsRes] = await Promise.all([
-    supabase
-      .from("journal_entries")
-      .select("*")
-      .eq("idea_id", row.id)
-      .order("created_at"),
-    supabase
-      .from("refinements")
-      .select("*")
-      .eq("idea_id", row.id)
-      .order("created_at"),
-  ]);
-
   const systemPrompt = composeSystemPrompt({
-    idea: row,
-    chatbotContext: activeVersion.chatbot_context,
-    journal: journalRes.data ?? [],
-    refinements: refinementsRes.data ?? [],
+    publicIdea: toPublicIdea(row, activeVersion),
     sharedRefusals: SHARED_REFUSALS,
   });
 
@@ -74,6 +60,20 @@ export async function POST(
     if (convErr) {
       console.error("conversation insert error:", convErr);
       return Response.json({ error: "db_error" }, { status: 500 });
+    }
+  } else {
+    const { data: existingConv, error: existingConvErr } = await supabase
+      .from("conversations")
+      .select("id, idea_id, context")
+      .eq("id", convId)
+      .single();
+    if (
+      existingConvErr ||
+      !existingConv ||
+      existingConv.idea_id !== row.id ||
+      existingConv.context !== "portfolio_public"
+    ) {
+      return Response.json({ error: "invalid_conversation" }, { status: 400 });
     }
   }
 

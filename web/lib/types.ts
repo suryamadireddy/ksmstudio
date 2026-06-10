@@ -160,7 +160,15 @@ export interface PortfolioVersion {
   chatbot_context: ChatbotContext;
   voice: { summary: string; sample_lines: string[] };
 
-  status: "active" | "archived" | "draft";
+  status: "active" | "archived" | "draft" | "working_draft";
+  /** History for working_draft only; always an array (empty when not a working draft). */
+  snapshots: WorkingDraftSnapshot[];
+  /** Present on working_draft while workspace distillation wiring exists (Step 8+). */
+  distillation_status?: {
+    status: "idle" | "running" | "failed";
+    last_attempt_at: string;
+    error?: string;
+  };
 }
 
 export interface CharacterCard {
@@ -213,6 +221,7 @@ export interface PresentationSection {
   purpose: ConceptualTerritory[];
   content_brief: string;
   notes?: string;
+  hidden?: boolean;
 }
 
 export type AccentColor =
@@ -238,18 +247,40 @@ export interface SignatureElement {
   rationale: string;
 }
 
+export type LayoutTemplate = "clean" | "showcase" | "aesthetic";
+
+/** Spatial placement for the signature; omitted means template defaults apply. */
+export interface SignaturePlacement {
+  mode: "inline" | "fixed_side" | "fixed_hero" | "floating";
+  /** When mode is fixed_side */
+  side?: "left" | "right";
+  /** When mode is floating: position as % from left (0–100) */
+  x_pct?: number;
+  /** When mode is floating: position as % from top (0–100) */
+  y_pct?: number;
+  /** When mode is floating: width as % of viewport (20–80) */
+  width_pct?: number;
+  /** When mode is floating: height as % of viewport (20–80) */
+  height_pct?: number;
+}
+
 export interface PresentationSpec {
   accent_color: AccentColor;
   accent_color_rationale: string;
   visual_register: VisualRegister;
   visual_register_rationale: string;
+  layout_template: LayoutTemplate;
+  layout_template_rationale: string;
   sections: PresentationSection[];
   signature_element: SignatureElement;
+  signature_placement?: SignaturePlacement;
 }
 
 export interface RenderedSection {
   archetype: Archetype;
   content: unknown;
+  /** When true, section is skipped by portfolio templates (workspace trim). */
+  hidden?: boolean;
 }
 
 export interface ChatbotContext {
@@ -259,6 +290,16 @@ export interface ChatbotContext {
   current_state: string;
   open_curiosities: string[];
   idea_specific_refusals: string[];
+}
+
+export interface WorkingDraftSnapshot {
+  id: string;
+  created_at: string;
+  trigger: "autosave" | "before_distillation" | "explicit";
+  presentation: PresentationSpec;
+  public_summary: { sections: RenderedSection[] };
+  chatbot_context: ChatbotContext;
+  voice: { summary: string; sample_lines: string[] };
 }
 
 // ── Outcomes JSONB ────────────────────────────────────────────────────────────

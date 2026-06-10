@@ -35,7 +35,6 @@ export function ProjectCard({
 
             <p className="mt-4 max-w-[85%] line-clamp-4 text-sm leading-6 text-white/85 opacity-0 translate-y-2 transition-all duration-300 group-hover:opacity-100 group-hover:translate-y-0">
               {project.summary ??
-                project.rawIdea ??
                 "A structured product exploration developed through research and product thinking."}
             </p>
           </div>

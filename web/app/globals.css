@@ -218,6 +218,12 @@
 [data-accent="terracotta"][data-theme="light"] { --accent: #9a3412; }
 [data-accent="terracotta"][data-theme="dark"]  { --accent: #fdba74; }
 
+/* Workspace edit layer — section affordance (templates stay unaware) */
+.portfolio-edit-layer [data-section-index]:hover {
+  outline: 1px solid color-mix(in srgb, var(--accent) 50%, transparent);
+  outline-offset: 6px;
+}
+
 /* ── Studio card hover ─────────────────────────────────────────────────────── */
 .idea-card:hover {
   border-color: var(--studio-border-strong) !important;

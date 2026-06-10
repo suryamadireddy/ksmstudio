@@ -1,0 +1,23 @@
+import { loadAuthorizedPortfolio, savePortfolio } from "@/lib/portfolio/workspace-auth";
+import { findWorkingDraft } from "@/lib/portfolio/workspace-helpers";
+
+export const dynamic = "force-dynamic";
+
+export async function POST(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { id: ideaId } = await params;
+  const gate = await loadAuthorizedPortfolio(ideaId);
+  if (!gate.ok) return gate.response;
+
+  const { supabase, portfolio } = gate;
+  const working = findWorkingDraft(portfolio.versions ?? []);
+  if (!working) {
+    return Response.json({ error: "no_working_draft" }, { status: 400 });
+  }
+
+  const nextVersions = (portfolio.versions ?? []).filter((v) => v.id !== working.id);
+
+  const saved = await savePortfolio(supabase, ideaId, { ...portfolio, versions: nextVersions });
+  if (!saved.ok) return saved.response;
+
+  return Response.json({ ok: true });
+}

@@ -10,13 +10,14 @@ import type { Metadata } from "next";
 
 async function fetchPublished(slug: string) {
   const supabase = await createClient();
+  // Public-safe view: only id, domain, state, created_at, portfolio (already
+  // filtered to published rows). No internal columns are reachable here.
   const { data } = await supabase
-    .from("ideas")
-    .select("id, raw_input, portfolio")
-    .eq("published", true)
+    .from("ideas_public")
+    .select("id, portfolio")
     .filter("portfolio->>slug", "eq", slug)
     .single();
-  return data as Pick<Idea, "id" | "raw_input" | "portfolio"> | null;
+  return data as Pick<Idea, "id" | "portfolio"> | null;
 }
 
 export async function generateMetadata({
