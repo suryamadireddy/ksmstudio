@@ -4,6 +4,10 @@ import { SHARED_REFUSALS } from "@/lib/portfolio/refusals";
 import { composeSystemPrompt } from "@/lib/portfolio/compose-system-prompt";
 import { createClient } from "@/lib/supabase/server";
 import { checkRateLimit } from "@/lib/portfolio/rate-limit";
+import {
+  getPublicChatVersion,
+  isPortfolioPublicConversationForIdea,
+} from "@/lib/portfolio/public-chat";
 
 export const dynamic = "force-dynamic";
 
@@ -32,38 +36,40 @@ export async function POST(
 
   if (!row) return Response.json({ error: "not_found" }, { status: 404 });
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const activeVersion = (row.portfolio as any)?.versions?.find(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (v: any) => v.id === (row.portfolio as any).active_version_id,
-  );
+  const activeVersion = getPublicChatVersion(row.portfolio);
   if (!activeVersion) {
-    return Response.json({ error: "no_active_version" }, { status: 500 });
+    return Response.json({ error: "no_active_version" }, { status: 404 });
   }
-
-  const [journalRes, refinementsRes] = await Promise.all([
-    supabase
-      .from("journal_entries")
-      .select("*")
-      .eq("idea_id", row.id)
-      .order("created_at"),
-    supabase
-      .from("refinements")
-      .select("*")
-      .eq("idea_id", row.id)
-      .order("created_at"),
-  ]);
 
   const systemPrompt = composeSystemPrompt({
     idea: row,
     chatbotContext: activeVersion.chatbot_context,
-    journal: journalRes.data ?? [],
-    refinements: refinementsRes.data ?? [],
+    journal: [],
+    refinements: [],
     sharedRefusals: SHARED_REFUSALS,
   });
 
-  let convId: string = conversationId ?? "";
-  if (!convId) {
+  let convId = typeof conversationId === "string" ? conversationId.trim() : "";
+  if (conversationId && !convId) {
+    return Response.json({ error: "invalid_conversation" }, { status: 400 });
+  }
+
+  if (convId) {
+    const { data: existingConv, error: convLookupErr } = await supabase
+      .from("conversations")
+      .select("id, idea_id, context")
+      .eq("id", convId)
+      .maybeSingle();
+
+    if (convLookupErr) {
+      console.error("conversation lookup error:", convLookupErr);
+      return Response.json({ error: "db_error" }, { status: 500 });
+    }
+
+    if (!isPortfolioPublicConversationForIdea(existingConv, row.id)) {
+      return Response.json({ error: "invalid_conversation" }, { status: 404 });
+    }
+  } else {
     convId = crypto.randomUUID();
     const { error: convErr } = await supabase.from("conversations").insert({
       id: convId,
@@ -85,12 +91,16 @@ export async function POST(
     content: message,
     created_at: new Date().toISOString(),
   });
-  if (msgErr) console.error("user message insert error:", msgErr);
+  if (msgErr) {
+    console.error("user message insert error:", msgErr);
+    return Response.json({ error: "db_error" }, { status: 500 });
+  }
 
   const { data: history } = await supabase
     .from("messages")
     .select("role, content")
     .eq("conversation_id", convId)
+    .eq("idea_id", row.id)
     .order("created_at");
 
   const anthropic = new Anthropic();
@@ -118,7 +128,7 @@ export async function POST(
           controller.enqueue(encoder.encode(event.delta.text));
         }
       }
-      await supabase.from("messages").insert({
+      const { error: assistantMsgErr } = await supabase.from("messages").insert({
         id: crypto.randomUUID(),
         conversation_id: convId,
         idea_id: row.id,
@@ -126,6 +136,9 @@ export async function POST(
         content: full,
         created_at: new Date().toISOString(),
       });
+      if (assistantMsgErr) {
+        console.error("assistant message insert error:", assistantMsgErr);
+      }
       controller.close();
     },
   });
