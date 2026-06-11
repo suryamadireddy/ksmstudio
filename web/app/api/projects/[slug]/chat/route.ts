@@ -1,7 +1,13 @@
 import { Anthropic } from "@anthropic-ai/sdk";
+import { randomUUID } from "node:crypto";
 import { CONVERSE_MODEL } from "@/lib/models";
+import {
+  signConversationId,
+  verifyConversationToken,
+} from "@/lib/portfolio/conversation-token";
 import { SHARED_REFUSALS } from "@/lib/portfolio/refusals";
 import { composeSystemPrompt } from "@/lib/portfolio/compose-system-prompt";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { checkRateLimit } from "@/lib/portfolio/rate-limit";
 
@@ -13,6 +19,11 @@ export async function POST(
 ) {
   const { slug } = await params;
   const { message, conversationId } = await req.json();
+
+  if (typeof message !== "string" || !message.trim()) {
+    return Response.json({ error: "message_required" }, { status: 400 });
+  }
+  const userMessage = message.trim();
 
   const ip = req.headers.get("x-forwarded-for") ?? "unknown";
   const rateLimit = await checkRateLimit(ip);
@@ -31,6 +42,8 @@ export async function POST(
     .single();
 
   if (!row) return Response.json({ error: "not_found" }, { status: 404 });
+
+  const adminSupabase = createAdminClient();
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const activeVersion = (row.portfolio as any)?.versions?.find(
@@ -62,10 +75,28 @@ export async function POST(
     sharedRefusals: SHARED_REFUSALS,
   });
 
-  let convId: string = conversationId ?? "";
+  let convId = verifyConversationToken(conversationId);
+  if (convId) {
+    const { data: existingConversation, error: convLookupErr } =
+      await adminSupabase
+        .from("conversations")
+        .select("id")
+        .eq("id", convId)
+        .eq("idea_id", row.id)
+        .eq("context", "portfolio_public")
+        .maybeSingle();
+
+    if (convLookupErr) {
+      console.error("conversation lookup error:", convLookupErr);
+      return Response.json({ error: "db_error" }, { status: 500 });
+    }
+
+    if (!existingConversation) convId = null;
+  }
+
   if (!convId) {
-    convId = crypto.randomUUID();
-    const { error: convErr } = await supabase.from("conversations").insert({
+    convId = randomUUID();
+    const { error: convErr } = await adminSupabase.from("conversations").insert({
       id: convId,
       idea_id: row.id,
       context: "portfolio_public",
@@ -76,22 +107,31 @@ export async function POST(
       return Response.json({ error: "db_error" }, { status: 500 });
     }
   }
+  const conversationIdForRequest = convId;
 
-  const { error: msgErr } = await supabase.from("messages").insert({
-    id: crypto.randomUUID(),
-    conversation_id: convId,
+  const { error: msgErr } = await adminSupabase.from("messages").insert({
+    id: randomUUID(),
+    conversation_id: conversationIdForRequest,
     idea_id: row.id,
     role: "user",
-    content: message,
+    content: userMessage,
     created_at: new Date().toISOString(),
   });
-  if (msgErr) console.error("user message insert error:", msgErr);
+  if (msgErr) {
+    console.error("user message insert error:", msgErr);
+    return Response.json({ error: "db_error" }, { status: 500 });
+  }
 
-  const { data: history } = await supabase
+  const { data: history, error: historyErr } = await adminSupabase
     .from("messages")
     .select("role, content")
-    .eq("conversation_id", convId)
+    .eq("conversation_id", conversationIdForRequest)
+    .eq("idea_id", row.id)
     .order("created_at");
+  if (historyErr) {
+    console.error("history lookup error:", historyErr);
+    return Response.json({ error: "db_error" }, { status: 500 });
+  }
 
   const anthropic = new Anthropic();
   const stream = await anthropic.messages.create({
@@ -118,14 +158,17 @@ export async function POST(
           controller.enqueue(encoder.encode(event.delta.text));
         }
       }
-      await supabase.from("messages").insert({
-        id: crypto.randomUUID(),
-        conversation_id: convId,
+      const { error: assistantMsgErr } = await adminSupabase.from("messages").insert({
+        id: randomUUID(),
+        conversation_id: conversationIdForRequest,
         idea_id: row.id,
         role: "idea",
         content: full,
         created_at: new Date().toISOString(),
       });
+      if (assistantMsgErr) {
+        console.error("assistant message insert error:", assistantMsgErr);
+      }
       controller.close();
     },
   });
@@ -133,7 +176,7 @@ export async function POST(
   return new Response(readable, {
     headers: {
       "Content-Type": "text/event-stream",
-      "x-conversation-id": convId,
+      "x-conversation-id": signConversationId(conversationIdForRequest),
     },
   });
 }
