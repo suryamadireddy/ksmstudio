@@ -3,7 +3,12 @@ import { CONVERSE_MODEL } from "@/lib/models";
 import { SHARED_REFUSALS } from "@/lib/portfolio/refusals";
 import { composeSystemPrompt } from "@/lib/portfolio/compose-system-prompt";
 import { createClient } from "@/lib/supabase/server";
+import { createServiceClient } from "@/lib/supabase/service";
 import { checkRateLimit } from "@/lib/portfolio/rate-limit";
+import {
+  signConversationToken,
+  verifyConversationToken,
+} from "@/lib/portfolio/conversation-token";
 
 export const dynamic = "force-dynamic";
 
@@ -12,7 +17,11 @@ export async function POST(
   { params }: { params: Promise<{ slug: string }> },
 ) {
   const { slug } = await params;
-  const { message, conversationId } = await req.json();
+  const { message, conversationToken } = await req.json();
+
+  if (typeof message !== "string" || !message.trim()) {
+    return Response.json({ error: "message_required" }, { status: 400 });
+  }
 
   const ip = req.headers.get("x-forwarded-for") ?? "unknown";
   const rateLimit = await checkRateLimit(ip);
@@ -21,6 +30,7 @@ export async function POST(
   }
 
   const supabase = await createClient();
+  const serviceSupabase = createServiceClient();
   const { data: row } = await supabase
     .from("ideas")
     .select(
@@ -62,22 +72,50 @@ export async function POST(
     sharedRefusals: SHARED_REFUSALS,
   });
 
-  let convId: string = conversationId ?? "";
-  if (!convId) {
+  let convId = "";
+  let nextConversationToken = conversationToken;
+
+  if (typeof conversationToken === "string" && conversationToken) {
+    const payload = verifyConversationToken(conversationToken);
+    if (!payload || payload.ideaId !== row.id || payload.slug !== slug) {
+      return Response.json({ error: "invalid_conversation" }, { status: 403 });
+    }
+
+    const { data: conversation } = await serviceSupabase
+      .from("conversations")
+      .select("id")
+      .eq("id", payload.conversationId)
+      .eq("idea_id", row.id)
+      .eq("context", "portfolio_public")
+      .single();
+
+    if (!conversation) {
+      return Response.json({ error: "invalid_conversation" }, { status: 403 });
+    }
+
+    convId = payload.conversationId;
+  } else {
     convId = crypto.randomUUID();
-    const { error: convErr } = await supabase.from("conversations").insert({
-      id: convId,
-      idea_id: row.id,
-      context: "portfolio_public",
-      created_at: new Date().toISOString(),
+    nextConversationToken = signConversationToken({
+      conversationId: convId,
+      ideaId: row.id,
+      slug,
     });
+    const { error: convErr } = await serviceSupabase
+      .from("conversations")
+      .insert({
+        id: convId,
+        idea_id: row.id,
+        context: "portfolio_public",
+        created_at: new Date().toISOString(),
+      });
     if (convErr) {
       console.error("conversation insert error:", convErr);
       return Response.json({ error: "db_error" }, { status: 500 });
     }
   }
 
-  const { error: msgErr } = await supabase.from("messages").insert({
+  const { error: msgErr } = await serviceSupabase.from("messages").insert({
     id: crypto.randomUUID(),
     conversation_id: convId,
     idea_id: row.id,
@@ -87,7 +125,7 @@ export async function POST(
   });
   if (msgErr) console.error("user message insert error:", msgErr);
 
-  const { data: history } = await supabase
+  const { data: history } = await serviceSupabase
     .from("messages")
     .select("role, content")
     .eq("conversation_id", convId)
@@ -118,7 +156,7 @@ export async function POST(
           controller.enqueue(encoder.encode(event.delta.text));
         }
       }
-      await supabase.from("messages").insert({
+      await serviceSupabase.from("messages").insert({
         id: crypto.randomUUID(),
         conversation_id: convId,
         idea_id: row.id,
@@ -134,6 +172,7 @@ export async function POST(
     headers: {
       "Content-Type": "text/event-stream",
       "x-conversation-id": convId,
+      "x-conversation-token": nextConversationToken,
     },
   });
 }
