@@ -64,15 +64,11 @@ CREATE POLICY "Authenticated full access to conversations"
   USING (true)
   WITH CHECK (true);
 
-CREATE POLICY "Public can create portfolio conversations"
-  ON conversations FOR INSERT
-  TO anon
-  WITH CHECK (context = 'portfolio_public');
+DROP POLICY IF EXISTS "Public can create portfolio conversations" ON conversations;
+DROP POLICY IF EXISTS "Public can read own portfolio conversations" ON conversations;
 
-CREATE POLICY "Public can read own portfolio conversations"
-  ON conversations FOR SELECT
-  TO anon
-  USING (context = 'portfolio_public');
+-- Public portfolio chat transcripts are persisted through the server-only chat
+-- API. Do not grant anon direct access to conversations.
 
 -- MESSAGES
 
@@ -82,20 +78,8 @@ CREATE POLICY "Authenticated full access to messages"
   USING (true)
   WITH CHECK (true);
 
-CREATE POLICY "Public can create messages in portfolio conversations"
-  ON messages FOR INSERT
-  TO anon
-  WITH CHECK (
-    conversation_id IN (
-      SELECT id FROM conversations WHERE context = 'portfolio_public'
-    )
-  );
+DROP POLICY IF EXISTS "Public can create messages in portfolio conversations" ON messages;
+DROP POLICY IF EXISTS "Public can read messages in portfolio conversations" ON messages;
 
-CREATE POLICY "Public can read messages in portfolio conversations"
-  ON messages FOR SELECT
-  TO anon
-  USING (
-    conversation_id IN (
-      SELECT id FROM conversations WHERE context = 'portfolio_public'
-    )
-  );
+-- Public portfolio chat transcripts are persisted through the server-only chat
+-- API. Do not grant anon direct access to messages.
