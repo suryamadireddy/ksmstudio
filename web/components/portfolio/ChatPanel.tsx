@@ -21,6 +21,7 @@ export function ChatPanel({
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [convId, setConvId] = useState<string | null>(null);
+  const [convToken, setConvToken] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -37,11 +38,17 @@ export function ChatPanel({
       const res = await fetch(`/api/projects/${slug}/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text, conversationId: convId }),
+        body: JSON.stringify({
+          message: text,
+          conversationId: convId,
+          conversationToken: convToken,
+        }),
       });
 
       const newConvId = res.headers.get("x-conversation-id");
+      const newConvToken = res.headers.get("x-conversation-token");
       if (newConvId && !convId) setConvId(newConvId);
+      if (newConvToken) setConvToken(newConvToken);
 
       if (!res.ok || !res.body) throw new Error("Request failed");
 
