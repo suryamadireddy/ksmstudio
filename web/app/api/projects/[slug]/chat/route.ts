@@ -2,8 +2,15 @@ import { Anthropic } from "@anthropic-ai/sdk";
 import { CONVERSE_MODEL } from "@/lib/models";
 import { SHARED_REFUSALS } from "@/lib/portfolio/refusals";
 import { composeSystemPrompt } from "@/lib/portfolio/compose-system-prompt";
-import { createClient } from "@/lib/supabase/server";
+import {
+  signPortfolioConversationToken,
+  verifyPortfolioConversationToken,
+} from "@/lib/portfolio/conversation-token";
 import { checkRateLimit } from "@/lib/portfolio/rate-limit";
+import {
+  createAnonServerClient,
+  createServiceRoleClient,
+} from "@/lib/supabase/service";
 
 export const dynamic = "force-dynamic";
 
@@ -12,7 +19,11 @@ export async function POST(
   { params }: { params: Promise<{ slug: string }> },
 ) {
   const { slug } = await params;
-  const { message, conversationId } = await req.json();
+  const { message, conversationId, conversationToken } = await req.json();
+
+  if (typeof message !== "string" || !message.trim()) {
+    return Response.json({ error: "message_required" }, { status: 400 });
+  }
 
   const ip = req.headers.get("x-forwarded-for") ?? "unknown";
   const rateLimit = await checkRateLimit(ip);
@@ -20,8 +31,9 @@ export async function POST(
     return Response.json({ error: "rate_limited" }, { status: 429 });
   }
 
-  const supabase = await createClient();
-  const { data: row } = await supabase
+  const publicSupabase = createAnonServerClient();
+  const transcriptSupabase = createServiceRoleClient();
+  const { data: row } = await publicSupabase
     .from("ideas")
     .select(
       "id, raw_input, domain, state, created_at, triage, development, outcomes, portfolio",
@@ -42,12 +54,12 @@ export async function POST(
   }
 
   const [journalRes, refinementsRes] = await Promise.all([
-    supabase
+    publicSupabase
       .from("journal_entries")
       .select("*")
       .eq("idea_id", row.id)
       .order("created_at"),
-    supabase
+    publicSupabase
       .from("refinements")
       .select("*")
       .eq("idea_id", row.id)
@@ -62,10 +74,10 @@ export async function POST(
     sharedRefusals: SHARED_REFUSALS,
   });
 
-  let convId: string = conversationId ?? "";
+  let convId = typeof conversationId === "string" ? conversationId : "";
   if (!convId) {
     convId = crypto.randomUUID();
-    const { error: convErr } = await supabase.from("conversations").insert({
+    const { error: convErr } = await transcriptSupabase.from("conversations").insert({
       id: convId,
       idea_id: row.id,
       context: "portfolio_public",
@@ -75,9 +87,32 @@ export async function POST(
       console.error("conversation insert error:", convErr);
       return Response.json({ error: "db_error" }, { status: 500 });
     }
+  } else {
+    const validToken = verifyPortfolioConversationToken({
+      conversationId: convId,
+      ideaId: row.id,
+      slug,
+      token: typeof conversationToken === "string" ? conversationToken : null,
+    });
+
+    if (!validToken) {
+      return Response.json({ error: "invalid_conversation" }, { status: 403 });
+    }
+
+    const { data: existingConv, error: convErr } = await transcriptSupabase
+      .from("conversations")
+      .select("id")
+      .eq("id", convId)
+      .eq("idea_id", row.id)
+      .eq("context", "portfolio_public")
+      .single();
+
+    if (convErr || !existingConv) {
+      return Response.json({ error: "conversation_not_found" }, { status: 404 });
+    }
   }
 
-  const { error: msgErr } = await supabase.from("messages").insert({
+  const { error: msgErr } = await transcriptSupabase.from("messages").insert({
     id: crypto.randomUUID(),
     conversation_id: convId,
     idea_id: row.id,
@@ -85,12 +120,16 @@ export async function POST(
     content: message,
     created_at: new Date().toISOString(),
   });
-  if (msgErr) console.error("user message insert error:", msgErr);
+  if (msgErr) {
+    console.error("user message insert error:", msgErr);
+    return Response.json({ error: "db_error" }, { status: 500 });
+  }
 
-  const { data: history } = await supabase
+  const { data: history } = await transcriptSupabase
     .from("messages")
     .select("role, content")
     .eq("conversation_id", convId)
+    .eq("idea_id", row.id)
     .order("created_at");
 
   const anthropic = new Anthropic();
@@ -118,7 +157,7 @@ export async function POST(
           controller.enqueue(encoder.encode(event.delta.text));
         }
       }
-      await supabase.from("messages").insert({
+      const { error: assistantMsgErr } = await transcriptSupabase.from("messages").insert({
         id: crypto.randomUUID(),
         conversation_id: convId,
         idea_id: row.id,
@@ -126,14 +165,24 @@ export async function POST(
         content: full,
         created_at: new Date().toISOString(),
       });
+      if (assistantMsgErr) {
+        console.error("assistant message insert error:", assistantMsgErr);
+      }
       controller.close();
     },
+  });
+
+  const signedConversationToken = signPortfolioConversationToken({
+    conversationId: convId,
+    ideaId: row.id,
+    slug,
   });
 
   return new Response(readable, {
     headers: {
       "Content-Type": "text/event-stream",
       "x-conversation-id": convId,
+      "x-conversation-token": signedConversationToken,
     },
   });
 }
