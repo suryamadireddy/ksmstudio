@@ -340,9 +340,20 @@ def parse_output(text: str) -> dict:
 
 
 def save_development(idea_id: str, development: dict) -> None:
-    """Write the development object to ideas.development."""
+    """Merge sharpening output into ideas.development without dropping artifacts."""
     db = get_client()
-    db.table("ideas").update({"development": development}).eq("id", idea_id).execute()
+    result = (
+        db.table("ideas")
+        .select("development")
+        .eq("id", idea_id)
+        .single()
+        .execute()
+    )
+    current = result.data.get("development") if result.data else {}
+    if not isinstance(current, dict):
+        current = {}
+    updated = {**current, **development}
+    db.table("ideas").update({"development": updated}).eq("id", idea_id).execute()
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────

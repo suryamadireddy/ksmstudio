@@ -314,11 +314,34 @@ export async function POST(request: NextRequest) {
         const development = parseOutput(fullText);
         development.sharpened_at = new Date().toISOString();
 
-        // Write to Supabase
-        await supabase
+        const { data: latestIdea, error: latestErr } = await supabase
           .from("ideas")
-          .update({ development, state: "sharpened" })
+          .select("development")
+          .eq("id", idea_id)
+          .single();
+        if (latestErr || !latestIdea) {
+          send({ error: "Idea not found" });
+          controller.close();
+          return;
+        }
+
+        const currentDevelopment =
+          latestIdea.development &&
+          typeof latestIdea.development === "object" &&
+          !Array.isArray(latestIdea.development)
+            ? (latestIdea.development as Record<string, unknown>)
+            : {};
+        const updatedDevelopment = { ...currentDevelopment, ...development };
+
+        const { error: updateErr } = await supabase
+          .from("ideas")
+          .update({ development: updatedDevelopment, state: "sharpened" })
           .eq("id", idea_id);
+        if (updateErr) {
+          send({ error: "Save failed" });
+          controller.close();
+          return;
+        }
 
         send({ done: true });
         controller.close();
