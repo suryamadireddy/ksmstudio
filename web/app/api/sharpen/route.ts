@@ -209,6 +209,17 @@ function parseOutput(text: string): Record<string, unknown> {
   return result;
 }
 
+function mergeDevelopment(
+  existing: unknown,
+  incoming: Record<string, unknown>
+): Record<string, unknown> {
+  const base =
+    existing && typeof existing === "object" && !Array.isArray(existing)
+      ? (existing as Record<string, unknown>)
+      : {};
+  return { ...base, ...incoming };
+}
+
 // ── Route handler ─────────────────────────────────────────────────────────────
 
 export async function POST(request: NextRequest) {
@@ -314,11 +325,26 @@ export async function POST(request: NextRequest) {
         const development = parseOutput(fullText);
         development.sharpened_at = new Date().toISOString();
 
-        // Write to Supabase
-        await supabase
+        const { data: latestIdea, error: latestIdeaError } = await supabase
           .from("ideas")
-          .update({ development, state: "sharpened" })
+          .select("development")
+          .eq("id", idea_id)
+          .single();
+
+        if (latestIdeaError || !latestIdea) {
+          throw latestIdeaError ?? new Error("Idea not found during save");
+        }
+
+        const mergedDevelopment = mergeDevelopment(latestIdea.development, development);
+
+        const { error: updateError } = await supabase
+          .from("ideas")
+          .update({ development: mergedDevelopment, state: "sharpened" })
           .eq("id", idea_id);
+
+        if (updateError) {
+          throw updateError;
+        }
 
         send({ done: true });
         controller.close();

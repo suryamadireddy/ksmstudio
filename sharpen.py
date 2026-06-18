@@ -33,6 +33,7 @@ import anthropic
 
 from config import ANTHROPIC_API_KEY, PIPELINE_MODEL as MODEL
 from db import get_client
+from development_utils import merge_development
 
 # ── System prompt ─────────────────────────────────────────────────────────────
 
@@ -339,10 +340,20 @@ def parse_output(text: str) -> dict:
     return result
 
 
-def save_development(idea_id: str, development: dict) -> None:
-    """Write the development object to ideas.development."""
+def save_development(idea_id: str, development: dict) -> dict:
+    """Merge researcher output into ideas.development without dropping artifacts."""
     db = get_client()
-    db.table("ideas").update({"development": development}).eq("id", idea_id).execute()
+    result = (
+        db.table("ideas")
+        .select("development")
+        .eq("id", idea_id)
+        .single()
+        .execute()
+    )
+    existing_development = (result.data or {}).get("development") or {}
+    updated_development = merge_development(existing_development, development)
+    db.table("ideas").update({"development": updated_development}).eq("id", idea_id).execute()
+    return updated_development
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -382,7 +393,7 @@ def main() -> None:
     print(f"  Saving to Supabase...")
 
     try:
-        save_development(idea_id, development)
+        development = save_development(idea_id, development)
     except Exception as exc:
         print(f"\n\033[31m✗ Save failed:\033[0m {exc}")
         print("\nParsed development object (not saved):")
