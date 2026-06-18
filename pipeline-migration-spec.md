@@ -348,12 +348,18 @@ ALTER TABLE ideas ADD COLUMN IF NOT EXISTS sharpened_version INTEGER DEFAULT 0;
 
 Increment `sharpened_version` alongside the `development` write:
 ```python
+updated_development = {**existing_dev, **development}
 db.table("ideas").update({
-    "development": development,
+    "development": updated_development,
     "state": "sharpened",
     "sharpened_version": (current_sharpened_version or 0) + 1,
 }).eq("id", idea_id).execute()
 ```
+
+The merge is required. `ideas.development` also contains downstream artifacts
+such as `prd`, `mvp_scope`, portfolio inputs, and deprecated artifacts retained
+for old rows. A Researcher re-run must overwrite only Researcher-owned keys and
+preserve every unrelated artifact key.
 
 ---
 
