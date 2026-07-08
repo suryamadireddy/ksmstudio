@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { notFound } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { createServiceClient } from "@/lib/supabase/service";
 import { PortfolioRender } from "@/components/portfolio/PortfolioRender";
 import { ChatPanel } from "@/components/portfolio/ChatPanel";
 import { Header } from "@/components/public/header";
@@ -9,7 +9,7 @@ import type { Idea, PortfolioVersion } from "@/lib/types";
 import type { Metadata } from "next";
 
 async function fetchPublished(slug: string) {
-  const supabase = await createClient();
+  const supabase = createServiceClient();
   const { data } = await supabase
     .from("ideas")
     .select("id, raw_input, portfolio")
