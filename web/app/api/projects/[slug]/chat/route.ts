@@ -3,6 +3,7 @@ import { CONVERSE_MODEL } from "@/lib/models";
 import { SHARED_REFUSALS } from "@/lib/portfolio/refusals";
 import { composeSystemPrompt } from "@/lib/portfolio/compose-system-prompt";
 import { createClient } from "@/lib/supabase/server";
+import { createServiceClient } from "@/lib/supabase/service";
 import { checkRateLimit } from "@/lib/portfolio/rate-limit";
 
 export const dynamic = "force-dynamic";
@@ -20,8 +21,9 @@ export async function POST(
     return Response.json({ error: "rate_limited" }, { status: 429 });
   }
 
-  const supabase = await createClient();
-  const { data: row } = await supabase
+  const publicSupabase = await createClient();
+  const serviceSupabase = createServiceClient();
+  const { data: row } = await serviceSupabase
     .from("ideas")
     .select(
       "id, raw_input, domain, state, created_at, triage, development, outcomes, portfolio",
@@ -42,12 +44,12 @@ export async function POST(
   }
 
   const [journalRes, refinementsRes] = await Promise.all([
-    supabase
+    publicSupabase
       .from("journal_entries")
       .select("*")
       .eq("idea_id", row.id)
       .order("created_at"),
-    supabase
+    publicSupabase
       .from("refinements")
       .select("*")
       .eq("idea_id", row.id)
@@ -65,7 +67,7 @@ export async function POST(
   let convId: string = conversationId ?? "";
   if (!convId) {
     convId = crypto.randomUUID();
-    const { error: convErr } = await supabase.from("conversations").insert({
+    const { error: convErr } = await publicSupabase.from("conversations").insert({
       id: convId,
       idea_id: row.id,
       context: "portfolio_public",
@@ -77,7 +79,7 @@ export async function POST(
     }
   }
 
-  const { error: msgErr } = await supabase.from("messages").insert({
+  const { error: msgErr } = await publicSupabase.from("messages").insert({
     id: crypto.randomUUID(),
     conversation_id: convId,
     idea_id: row.id,
@@ -87,7 +89,7 @@ export async function POST(
   });
   if (msgErr) console.error("user message insert error:", msgErr);
 
-  const { data: history } = await supabase
+  const { data: history } = await publicSupabase
     .from("messages")
     .select("role, content")
     .eq("conversation_id", convId)
@@ -118,7 +120,7 @@ export async function POST(
           controller.enqueue(encoder.encode(event.delta.text));
         }
       }
-      await supabase.from("messages").insert({
+      await publicSupabase.from("messages").insert({
         id: crypto.randomUUID(),
         conversation_id: convId,
         idea_id: row.id,

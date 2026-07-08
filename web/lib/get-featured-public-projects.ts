@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/server";
+import { createServiceClient } from "@/lib/supabase/service";
 
 export type PublicProjectCard = {
   id: string;
@@ -10,7 +10,7 @@ export type PublicProjectCard = {
 };
 
 export async function getFeaturedPublicProjects(): Promise<PublicProjectCard[]> {
-  const supabase = await createClient();
+  const supabase = createServiceClient();
   const { data } = await supabase
     .from("ideas")
     .select("id, raw_input, portfolio")

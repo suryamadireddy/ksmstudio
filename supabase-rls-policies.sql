@@ -35,10 +35,11 @@ CREATE POLICY "Authenticated full access to ideas"
   USING (true)
   WITH CHECK (true);
 
-CREATE POLICY "Public read published ideas"
-  ON ideas FOR SELECT
-  TO anon
-  USING (published = true);
+DROP POLICY IF EXISTS "Public read published ideas" ON ideas;
+
+-- Do not grant anon SELECT on ideas. Published public pages are rendered through
+-- server-side routes that read with the service-role key and project curated
+-- portfolio fields, because RLS cannot restrict SELECT to only safe JSONB keys.
 
 -- JOURNAL ENTRIES
 

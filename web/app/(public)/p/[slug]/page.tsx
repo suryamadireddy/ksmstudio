@@ -1,12 +1,12 @@
 import { notFound } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { createServiceClient } from "@/lib/supabase/service";
 import { ideaDisplayName, type Idea } from "@/lib/types";
 import type { Metadata } from "next";
 
 export const dynamic = "force-dynamic";
 
 async function getIdea(slug: string): Promise<Idea | null> {
-  const supabase = await createClient();
+  const supabase = createServiceClient();
   const { data } = await supabase
     .from("ideas")
     .select("id, raw_input, domain, state, created_at, triage, development, portfolio")
