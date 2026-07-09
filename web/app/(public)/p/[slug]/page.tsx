@@ -9,7 +9,7 @@ async function getIdea(slug: string): Promise<Idea | null> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("ideas")
-    .select("id, raw_input, domain, state, created_at, triage, development, portfolio")
+    .select("id, raw_input, domain, state, created_at, published, triage, development, portfolio")
     .eq("published", true)
     .eq("portfolio->>slug", slug)
     .single();
