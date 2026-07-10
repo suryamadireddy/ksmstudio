@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { requireStudioOwner } from "@/lib/auth/studio-access";
 import type { AccentColor, VisualRegister } from "@/lib/types";
 
 interface PresentationPatch {
@@ -13,8 +14,8 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string; versionId: string }> },
 ) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return Response.json({ error: "unauthorized" }, { status: 401 });
+  const auth = await requireStudioOwner(supabase);
+  if (auth.response) return auth.response;
 
   const { id, versionId } = await params;
   const patch: PresentationPatch = await req.json();

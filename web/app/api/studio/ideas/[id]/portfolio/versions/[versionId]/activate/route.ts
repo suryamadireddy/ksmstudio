@@ -1,12 +1,13 @@
 import { createClient } from "@/lib/supabase/server";
+import { requireStudioOwner } from "@/lib/auth/studio-access";
 
 export async function POST(
   _req: Request,
   { params }: { params: Promise<{ id: string; versionId: string }> },
 ) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return Response.json({ error: "unauthorized" }, { status: 401 });
+  const auth = await requireStudioOwner(supabase);
+  if (auth.response) return auth.response;
 
   const { id, versionId } = await params;
 
@@ -21,6 +22,10 @@ export async function POST(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const portfolio = row.portfolio as any;
   if (!portfolio?.versions) return Response.json({ error: "no_versions" }, { status: 400 });
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const target = portfolio.versions.find((v: any) => v.id === versionId);
+  if (!target) return Response.json({ error: "version_not_found" }, { status: 404 });
 
   // Archive previous active, activate target
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

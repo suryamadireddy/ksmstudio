@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { requireStudioOwner } from "@/lib/auth/studio-access";
 import { NextRequest, NextResponse } from "next/server";
 import type { OutcomeEntry, Outcomes } from "@/lib/types";
 
@@ -21,6 +22,9 @@ export async function POST(
   }
 
   const supabase = await createClient();
+  const auth = await requireStudioOwner(supabase);
+  if (auth.response) return auth.response;
+
   const { data: idea, error } = await supabase
     .from("ideas")
     .select("id, outcomes")

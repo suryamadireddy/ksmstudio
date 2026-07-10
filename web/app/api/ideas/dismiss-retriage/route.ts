@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { requireStudioOwner } from "@/lib/auth/studio-access";
 import { NextRequest } from "next/server";
 
 export async function POST(request: NextRequest) {
@@ -12,6 +13,9 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = await createClient();
+    const auth = await requireStudioOwner(supabase);
+    if (auth.response) return auth.response;
+
     await supabase
       .from("ideas")
       .update({ retriage_pending: false, retriage_reasons: [] })

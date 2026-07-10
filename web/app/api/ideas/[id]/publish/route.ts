@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { requireStudioOwner } from "@/lib/auth/studio-access";
 import { NextRequest, NextResponse } from "next/server";
 import type { Portfolio } from "@/lib/types";
 
@@ -41,6 +42,9 @@ export async function POST(
   }
 
   const supabase = await createClient();
+  const auth = await requireStudioOwner(supabase);
+  if (auth.response) return auth.response;
+
   const { data: idea, error } = await supabase
     .from("ideas")
     .select("id, triage, portfolio")
@@ -58,10 +62,10 @@ export async function POST(
 
     const triage = idea.triage as { title?: string; triage_reasoning?: string };
     const title = triage.title ?? "";
-    const baseSlug = generateSlug(title);
+    const existing = idea.portfolio as Portfolio | null;
+    const baseSlug = existing?.slug || generateSlug(title) || `idea-${id.slice(0, 8)}`;
     const slug = await uniqueSlug(supabase, baseSlug, id);
 
-    const existing = idea.portfolio as Portfolio | null;
     const headline =
       providedHeadline ??
       existing?.headline ??
@@ -71,7 +75,7 @@ export async function POST(
       published: true,
       published_at: existing?.published_at ?? new Date().toISOString(),
       unpublished_at: null,
-      slug: existing?.slug ?? slug,
+      slug,
       headline,
       versions: existing?.versions ?? [],
       active_version_id: existing?.active_version_id ?? null,

@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { createClient } from "@/lib/supabase/server";
+import { requireStudioOwner } from "@/lib/auth/studio-access";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -9,12 +10,9 @@ export async function POST(
   req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  // Verify authenticated session
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) {
-    return Response.json({ error: "unauthorized" }, { status: 401 });
-  }
+  const auth = await requireStudioOwner(supabase);
+  if (auth.response) return auth.response;
 
   const { id } = await params;
   const { brief, mode = "default" } = await req.json();
