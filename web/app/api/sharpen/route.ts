@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { requireStudioOwner } from "@/lib/auth/studio-access";
 import Anthropic from "@anthropic-ai/sdk";
 import { NextRequest } from "next/server";
 import { PIPELINE_MODEL } from "@/lib/models";
@@ -224,6 +225,9 @@ export async function POST(request: NextRequest) {
   }
 
   const supabase = await createClient();
+  const auth = await requireStudioOwner(supabase);
+  if (auth.response) return auth.response;
+
   const { data: idea } = await supabase
     .from("ideas")
     .select("raw_input, triage")

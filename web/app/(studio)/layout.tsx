@@ -1,6 +1,7 @@
 import { Playfair_Display, JetBrains_Mono } from "next/font/google";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { isStudioOwner } from "@/lib/auth/studio-access";
 import StudioNav from "./_components/StudioNav";
 
 const playfair = Playfair_Display({
@@ -26,6 +27,7 @@ export default async function StudioLayout({
   } = await supabase.auth.getUser();
 
   if (!user) redirect("/auth/login");
+  if (!isStudioOwner(user)) redirect("/auth/login?error=unauthorized");
 
   return (
     <div

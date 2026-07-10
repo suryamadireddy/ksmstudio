@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { requireStudioOwner } from "@/lib/auth/studio-access";
 import Anthropic from "@anthropic-ai/sdk";
 import type { NextRequest } from "next/server";
 import { REASONING_MODEL } from "@/lib/models";
@@ -137,6 +138,8 @@ export async function POST(req: NextRequest) {
   }
 
   const supabase = await createClient();
+  const auth = await requireStudioOwner(supabase);
+  if (auth.response) return auth.response;
 
   // Fetch the idea being re-triaged
   const { data: ideaRow, error: ideaError } = await supabase

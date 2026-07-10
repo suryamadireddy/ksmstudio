@@ -38,6 +38,11 @@ function LoginForm() {
     });
   }
 
+  const errorMessage =
+    error === "unauthorized"
+      ? "This account is not allowed to access the studio."
+      : "Authentication failed. Please try again.";
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-[#0f0e0c]">
       <div className="w-full max-w-sm px-6">
@@ -55,7 +60,7 @@ function LoginForm() {
 
         {mounted && error && (
           <div className="mb-6 rounded border border-red-900/40 bg-red-950/30 px-4 py-3 text-sm text-red-400">
-            Authentication failed. Please try again.
+            {errorMessage}
           </div>
         )}
 

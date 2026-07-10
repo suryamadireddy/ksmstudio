@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { NextResponse, type NextRequest } from "next/server";
+import { isStudioOwner } from "@/lib/auth/studio-access";
 
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url);
@@ -28,6 +29,15 @@ export async function GET(request: NextRequest) {
 
     const { error } = await supabase.auth.exchangeCodeForSession(code);
     if (!error) {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!isStudioOwner(user)) {
+        await supabase.auth.signOut();
+        return NextResponse.redirect(`${origin}/auth/login?error=unauthorized`);
+      }
+
       return NextResponse.redirect(`${origin}${next}`);
     }
   }

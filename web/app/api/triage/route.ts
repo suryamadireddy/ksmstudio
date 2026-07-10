@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { requireStudioOwner } from "@/lib/auth/studio-access";
 import Anthropic from "@anthropic-ai/sdk";
 import type { NextRequest } from "next/server";
 import { REASONING_MODEL } from "@/lib/models";
@@ -90,11 +91,14 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  const supabaseForHistory = await createClient();
+  const auth = await requireStudioOwner(supabaseForHistory);
+  if (auth.response) return auth.response;
+
   const rawInput = messages.find((m) => m.role === "user")?.content ?? "";
   const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
   // Fetch prior triages for adaptive difficulty injection
-  const supabaseForHistory = await createClient();
   const { data: priorRows } = await supabaseForHistory
     .from("ideas")
     .select("triage")

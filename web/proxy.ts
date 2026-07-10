@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { isStudioOwner } from "@/lib/auth/studio-access";
 
 export async function proxy(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
@@ -29,9 +30,21 @@ export async function proxy(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  if (!user && request.nextUrl.pathname.startsWith("/studio")) {
+  const isPrivatePath =
+    request.nextUrl.pathname.startsWith("/studio") ||
+    request.nextUrl.pathname.startsWith("/ideas") ||
+    request.nextUrl.pathname.startsWith("/triage");
+
+  if (!user && isPrivatePath) {
     const url = request.nextUrl.clone();
     url.pathname = "/auth/login";
+    return NextResponse.redirect(url);
+  }
+
+  if (user && isPrivatePath && !isStudioOwner(user)) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/auth/login";
+    url.searchParams.set("error", "unauthorized");
     return NextResponse.redirect(url);
   }
 
@@ -39,5 +52,5 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/studio/:path*"],
+  matcher: ["/studio/:path*", "/ideas/:path*", "/triage/:path*"],
 };

@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { requireStudioOwner } from "@/lib/auth/studio-access";
 import Anthropic from "@anthropic-ai/sdk";
 import { NextRequest } from "next/server";
 import type { Idea, JournalEntry, Conversation, Refinement, Outcomes } from "@/lib/types";
@@ -253,6 +254,8 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = await createClient();
+    const auth = await requireStudioOwner(supabase);
+    if (auth.response) return auth.response;
 
     const [ideaRes, journalRes, summariesRes, refinementsRes] = await Promise.all([
       supabase.from("ideas").select("id, raw_input, domain, state, created_at, triage, development, outcomes").eq("id", idea_id).single(),
