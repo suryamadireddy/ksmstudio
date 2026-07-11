@@ -2,11 +2,16 @@ import { createClient } from "@/lib/supabase/server";
 import { NextRequest, NextResponse } from "next/server";
 import type { OutcomeEntry, Outcomes } from "@/lib/types";
 
-const STATUS_FROM_TYPE: Record<string, Outcomes["current_status"]> = {
+const STATUS_FROM_TYPE: Partial<Record<OutcomeEntry["type"], Outcomes["current_status"]>> = {
   kill: "killed",
   launch: "launched",
   pause: "paused",
 };
+
+function currentStatusFromEntries(entries: OutcomeEntry[]): Outcomes["current_status"] {
+  const latestStatusEntry = [...entries].reverse().find((entry) => STATUS_FROM_TYPE[entry.type]);
+  return latestStatusEntry ? STATUS_FROM_TYPE[latestStatusEntry.type]! : "exploring";
+}
 
 export async function POST(
   request: NextRequest,
@@ -59,7 +64,12 @@ export async function POST(
 
   } else if (action === "delete_entry") {
     const { entry_id } = body as { entry_id: string };
+    const deletedEntry = outcomes.entries.find((e) => e.id === entry_id);
     outcomes.entries = outcomes.entries.filter((e) => e.id !== entry_id);
+    const deletedStatus = deletedEntry ? STATUS_FROM_TYPE[deletedEntry.type] : null;
+    if (deletedStatus && outcomes.current_status === deletedStatus) {
+      outcomes.current_status = currentStatusFromEntries(outcomes.entries);
+    }
     outcomes.status_updated_at = new Date().toISOString();
   }
 
