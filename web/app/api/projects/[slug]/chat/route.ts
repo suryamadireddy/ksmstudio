@@ -4,6 +4,7 @@ import { SHARED_REFUSALS } from "@/lib/portfolio/refusals";
 import { composeSystemPrompt } from "@/lib/portfolio/compose-system-prompt";
 import { createClient } from "@/lib/supabase/server";
 import { checkRateLimit } from "@/lib/portfolio/rate-limit";
+import { getRenderableActiveVersion } from "@/lib/portfolio/version-validation";
 
 export const dynamic = "force-dynamic";
 
@@ -32,13 +33,9 @@ export async function POST(
 
   if (!row) return Response.json({ error: "not_found" }, { status: 404 });
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const activeVersion = (row.portfolio as any)?.versions?.find(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (v: any) => v.id === (row.portfolio as any).active_version_id,
-  );
+  const activeVersion = getRenderableActiveVersion(row.portfolio);
   if (!activeVersion) {
-    return Response.json({ error: "no_active_version" }, { status: 500 });
+    return Response.json({ error: "no_active_version" }, { status: 409 });
   }
 
   const [journalRes, refinementsRes] = await Promise.all([

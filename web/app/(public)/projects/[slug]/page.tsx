@@ -5,7 +5,8 @@ import { createClient } from "@/lib/supabase/server";
 import { PortfolioRender } from "@/components/portfolio/PortfolioRender";
 import { ChatPanel } from "@/components/portfolio/ChatPanel";
 import { Header } from "@/components/public/header";
-import type { Idea, PortfolioVersion } from "@/lib/types";
+import { getRenderableActiveVersion } from "@/lib/portfolio/version-validation";
+import type { Idea } from "@/lib/types";
 import type { Metadata } from "next";
 
 async function fetchPublished(slug: string) {
@@ -29,9 +30,7 @@ export async function generateMetadata({
   if (!row?.portfolio) return { title: "Not found" };
   const p = row.portfolio;
 
-  const activeVersion = p.versions?.find(
-    (v: PortfolioVersion) => v.id === p.active_version_id && v.status === "active",
-  );
+  const activeVersion = getRenderableActiveVersion(p);
   const description =
     activeVersion?.voice?.summary ??
     (typeof p.public_summary === "string" ? p.public_summary : null) ??
@@ -55,9 +54,7 @@ export default async function ProjectPage({
   const { portfolio } = row;
 
   // Phase 4 render — distilled version
-  const activeVersion = portfolio.versions?.find(
-    (v: PortfolioVersion) => v.id === portfolio.active_version_id && v.status === "active",
-  );
+  const activeVersion = getRenderableActiveVersion(portfolio);
 
   if (activeVersion) {
     return (
