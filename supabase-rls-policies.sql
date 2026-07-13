@@ -58,44 +58,28 @@ CREATE POLICY "Authenticated full access to refinements"
 
 -- CONVERSATIONS
 
+DROP POLICY IF EXISTS "Public can create portfolio conversations"
+  ON conversations;
+
+DROP POLICY IF EXISTS "Public can read own portfolio conversations"
+  ON conversations;
+
 CREATE POLICY "Authenticated full access to conversations"
   ON conversations FOR ALL
   TO authenticated
   USING (true)
   WITH CHECK (true);
 
-CREATE POLICY "Public can create portfolio conversations"
-  ON conversations FOR INSERT
-  TO anon
-  WITH CHECK (context = 'portfolio_public');
-
-CREATE POLICY "Public can read own portfolio conversations"
-  ON conversations FOR SELECT
-  TO anon
-  USING (context = 'portfolio_public');
-
 -- MESSAGES
+
+DROP POLICY IF EXISTS "Public can create messages in portfolio conversations"
+  ON messages;
+
+DROP POLICY IF EXISTS "Public can read messages in portfolio conversations"
+  ON messages;
 
 CREATE POLICY "Authenticated full access to messages"
   ON messages FOR ALL
   TO authenticated
   USING (true)
   WITH CHECK (true);
-
-CREATE POLICY "Public can create messages in portfolio conversations"
-  ON messages FOR INSERT
-  TO anon
-  WITH CHECK (
-    conversation_id IN (
-      SELECT id FROM conversations WHERE context = 'portfolio_public'
-    )
-  );
-
-CREATE POLICY "Public can read messages in portfolio conversations"
-  ON messages FOR SELECT
-  TO anon
-  USING (
-    conversation_id IN (
-      SELECT id FROM conversations WHERE context = 'portfolio_public'
-    )
-  );
