@@ -2,17 +2,86 @@ import { Anthropic } from "@anthropic-ai/sdk";
 import { CONVERSE_MODEL } from "@/lib/models";
 import { SHARED_REFUSALS } from "@/lib/portfolio/refusals";
 import { composeSystemPrompt } from "@/lib/portfolio/compose-system-prompt";
-import { createClient } from "@/lib/supabase/server";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { checkRateLimit } from "@/lib/portfolio/rate-limit";
+import { createHmac, timingSafeEqual } from "crypto";
 
 export const dynamic = "force-dynamic";
+
+interface ConversationTokenPayload {
+  conversationId: string;
+  ideaId: string;
+  slug: string;
+  issuedAt: number;
+}
+
+function getTokenSecret() {
+  const secret =
+    process.env.PORTFOLIO_CHAT_TOKEN_SECRET ?? process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!secret) throw new Error("Missing portfolio chat token secret");
+  return secret;
+}
+
+function signConversationToken(payload: ConversationTokenPayload) {
+  const encodedPayload = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  const signature = createHmac("sha256", getTokenSecret())
+    .update(encodedPayload)
+    .digest("base64url");
+
+  return `${encodedPayload}.${signature}`;
+}
+
+function verifyConversationToken(
+  token: unknown,
+  expected: { ideaId: string; slug: string },
+) {
+  if (typeof token !== "string") return null;
+
+  const [encodedPayload, signature, extra] = token.split(".");
+  if (!encodedPayload || !signature || extra !== undefined) return null;
+
+  const expectedSignature = createHmac("sha256", getTokenSecret())
+    .update(encodedPayload)
+    .digest("base64url");
+  const signatureBuffer = Buffer.from(signature);
+  const expectedBuffer = Buffer.from(expectedSignature);
+
+  if (
+    signatureBuffer.length !== expectedBuffer.length ||
+    !timingSafeEqual(signatureBuffer, expectedBuffer)
+  ) {
+    return null;
+  }
+
+  try {
+    const payload = JSON.parse(
+      Buffer.from(encodedPayload, "base64url").toString("utf8"),
+    ) as Partial<ConversationTokenPayload>;
+
+    if (
+      typeof payload.conversationId !== "string" ||
+      payload.ideaId !== expected.ideaId ||
+      payload.slug !== expected.slug
+    ) {
+      return null;
+    }
+
+    return payload.conversationId;
+  } catch {
+    return null;
+  }
+}
 
 export async function POST(
   req: Request,
   { params }: { params: Promise<{ slug: string }> },
 ) {
   const { slug } = await params;
-  const { message, conversationId } = await req.json();
+  const { message, conversationToken } = await req.json();
+
+  if (typeof message !== "string" || !message.trim()) {
+    return Response.json({ error: "message_required" }, { status: 400 });
+  }
 
   const ip = req.headers.get("x-forwarded-for") ?? "unknown";
   const rateLimit = await checkRateLimit(ip);
@@ -20,7 +89,7 @@ export async function POST(
     return Response.json({ error: "rate_limited" }, { status: 429 });
   }
 
-  const supabase = await createClient();
+  const supabase = createServiceRoleClient();
   const { data: row } = await supabase
     .from("ideas")
     .select(
@@ -62,7 +131,24 @@ export async function POST(
     sharedRefusals: SHARED_REFUSALS,
   });
 
-  let convId: string = conversationId ?? "";
+  let convId = verifyConversationToken(conversationToken, {
+    ideaId: row.id,
+    slug,
+  });
+  let responseConversationToken =
+    convId === null
+      ? null
+      : signConversationToken({
+          conversationId: convId,
+          ideaId: row.id,
+          slug,
+          issuedAt: Date.now(),
+        });
+
+  if (conversationToken && !convId) {
+    return Response.json({ error: "invalid_conversation" }, { status: 401 });
+  }
+
   if (!convId) {
     convId = crypto.randomUUID();
     const { error: convErr } = await supabase.from("conversations").insert({
@@ -74,6 +160,24 @@ export async function POST(
     if (convErr) {
       console.error("conversation insert error:", convErr);
       return Response.json({ error: "db_error" }, { status: 500 });
+    }
+    responseConversationToken = signConversationToken({
+      conversationId: convId,
+      ideaId: row.id,
+      slug,
+      issuedAt: Date.now(),
+    });
+  } else {
+    const { data: existingConversation } = await supabase
+      .from("conversations")
+      .select("id")
+      .eq("id", convId)
+      .eq("idea_id", row.id)
+      .eq("context", "portfolio_public")
+      .single();
+
+    if (!existingConversation) {
+      return Response.json({ error: "invalid_conversation" }, { status: 401 });
     }
   }
 
@@ -91,6 +195,7 @@ export async function POST(
     .from("messages")
     .select("role, content")
     .eq("conversation_id", convId)
+    .eq("idea_id", row.id)
     .order("created_at");
 
   const anthropic = new Anthropic();
@@ -133,7 +238,7 @@ export async function POST(
   return new Response(readable, {
     headers: {
       "Content-Type": "text/event-stream",
-      "x-conversation-id": convId,
+      "x-conversation-token": responseConversationToken ?? "",
     },
   });
 }
