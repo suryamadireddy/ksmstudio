@@ -22,6 +22,8 @@ export function PortfolioTab({ idea }: { idea: Idea }) {
 
   const selectedVersion =
     versions.find((v) => v.id === selectedVersionId) ?? null;
+  const selectedArchiveRequiresUnpublish =
+    Boolean(idea.published) && selectedVersion?.id === activeVersionId;
 
   async function handleGenerate() {
     setGenerating(true);
@@ -244,8 +246,14 @@ export function PortfolioTab({ idea }: { idea: Idea }) {
                 {selectedVersion && selectedVersion.status !== "archived" && (
                   <button
                     onClick={() => handleArchive(selectedVersion.id)}
-                    className="rounded px-2.5 py-1 text-[11px] transition-colors"
+                    disabled={selectedArchiveRequiresUnpublish}
+                    className="rounded px-2.5 py-1 text-[11px] transition-colors disabled:cursor-not-allowed disabled:opacity-40"
                     style={{ color: "var(--studio-fg-muted)" }}
+                    title={
+                      selectedArchiveRequiresUnpublish
+                        ? "Unpublish before archiving the active version"
+                        : "Archive"
+                    }
                   >
                     Archive
                   </button>
@@ -316,6 +324,8 @@ export function PortfolioTab({ idea }: { idea: Idea }) {
               {[...versions].reverse().map((v, i) => {
                 const isSelected = v.id === selectedVersionId;
                 const isActive = v.id === activeVersionId;
+                const archiveRequiresUnpublish =
+                  Boolean(idea.published) && isActive;
                 return (
                   <div
                     key={v.id}
@@ -406,9 +416,14 @@ export function PortfolioTab({ idea }: { idea: Idea }) {
                             e.stopPropagation();
                             handleArchive(v.id);
                           }}
-                          className="rounded px-2 py-1 text-[11px] transition-colors"
+                          disabled={archiveRequiresUnpublish}
+                          className="rounded px-2 py-1 text-[11px] transition-colors disabled:cursor-not-allowed disabled:opacity-40"
                           style={{ color: "var(--studio-fg-muted)" }}
-                          title="Archive"
+                          title={
+                            archiveRequiresUnpublish
+                              ? "Unpublish before archiving the active version"
+                              : "Archive"
+                          }
                         >
                           Archive
                         </button>
