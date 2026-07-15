@@ -18,5 +18,10 @@ def get_service_client() -> Client:
     """Service role client — bypasses RLS. Use only in trusted internal pipelines."""
     global _service_client
     if _service_client is None:
+        if not SUPABASE_SERVICE_KEY:
+            raise RuntimeError(
+                "Service-role access requires SUPABASE_SERVICE_KEY "
+                "or SUPABASE_SERVICE_ROLE_KEY"
+            )
         _service_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
     return _service_client

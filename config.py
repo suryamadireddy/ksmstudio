@@ -1,4 +1,6 @@
 import os
+from typing import Optional
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -6,7 +8,10 @@ load_dotenv()
 ANTHROPIC_API_KEY: str = os.environ["ANTHROPIC_API_KEY"]
 SUPABASE_URL: str = os.environ["SUPABASE_URL"]
 SUPABASE_KEY: str = os.environ["SUPABASE_KEY"]
-SUPABASE_SERVICE_KEY: str = os.environ["SUPABASE_SERVICE_KEY"]
+SUPABASE_SERVICE_KEY: Optional[str] = (
+    os.environ.get("SUPABASE_SERVICE_KEY")
+    or os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+)
 
 # Deep reasoning — triage, re-triage
 REASONING_MODEL = "claude-opus-4-6"
