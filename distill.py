@@ -611,6 +611,22 @@ def pass3_content(
 
 # ── Main orchestrator ──────────────────────────────────────────────────────────
 
+def resolve_new_version_activation(
+    prior_versions: list,
+    current_active_id: str | None,
+    version_id: str,
+) -> tuple[str, str | None]:
+    """Decide status and active_version_id for a newly distilled version.
+
+    Spec: first version auto-activates; later versions stay draft/inactive
+    until the user approves — even if the previous active pointer was cleared
+    (e.g. after archiving the active version).
+    """
+    if not prior_versions:
+        return "active", version_id
+    return "draft", current_active_id
+
+
 def distill_idea(
     idea_id: str,
     creative_brief: str | None = None,
@@ -676,6 +692,11 @@ def distill_idea(
     # Assemble version
     version_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc).isoformat()
+    status, active_version_id = resolve_new_version_activation(
+        prior_versions,
+        portfolio.get("active_version_id"),
+        version_id,
+    )
     new_version = {
         "id": version_id,
         "created_at": now,
@@ -687,14 +708,11 @@ def distill_idea(
         "public_summary": content["public_summary"],
         "chatbot_context": content["chatbot_context"],
         "voice": content["voice"],
-        "status": "draft" if prior_versions else "active",
+        "status": status,
     }
 
     # Write to Supabase
     updated_versions = list(prior_versions) + [new_version]
-    active_version_id = portfolio.get("active_version_id")
-    if not active_version_id:
-        active_version_id = version_id  # first version auto-activates
 
     updated_portfolio = {
         **portfolio,

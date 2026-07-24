@@ -20,7 +20,6 @@ const RAIL_COL_MD = 128;
 
 function getTileDescription(project: PublicProjectCard) {
   if (project.summary?.trim()) return project.summary.trim();
-  if (project.rawIdea?.trim()) return project.rawIdea.trim();
 
   return "Research-backed product concept with a public case study, artifacts, and grounded product direction.";
 }
