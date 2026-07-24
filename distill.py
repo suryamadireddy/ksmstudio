@@ -24,6 +24,7 @@ import anthropic
 
 from config import ANTHROPIC_API_KEY, REASONING_MODEL, PIPELINE_MODEL
 from db import get_service_client
+from portfolio_activation import resolve_new_version_activation
 
 client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
@@ -676,6 +677,11 @@ def distill_idea(
     # Assemble version
     version_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc).isoformat()
+    status, active_version_id = resolve_new_version_activation(
+        prior_versions,
+        portfolio.get("active_version_id"),
+        version_id,
+    )
     new_version = {
         "id": version_id,
         "created_at": now,
@@ -687,14 +693,11 @@ def distill_idea(
         "public_summary": content["public_summary"],
         "chatbot_context": content["chatbot_context"],
         "voice": content["voice"],
-        "status": "draft" if prior_versions else "active",
+        "status": status,
     }
 
     # Write to Supabase
     updated_versions = list(prior_versions) + [new_version]
-    active_version_id = portfolio.get("active_version_id")
-    if not active_version_id:
-        active_version_id = version_id  # first version auto-activates
 
     updated_portfolio = {
         **portfolio,

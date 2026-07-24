@@ -2,8 +2,10 @@ import { Anthropic } from "@anthropic-ai/sdk";
 import { CONVERSE_MODEL } from "@/lib/models";
 import { SHARED_REFUSALS } from "@/lib/portfolio/refusals";
 import { composeSystemPrompt } from "@/lib/portfolio/compose-system-prompt";
+import { findActivePortfolioVersion } from "@/lib/portfolio/active-version";
 import { createClient } from "@/lib/supabase/server";
 import { checkRateLimit } from "@/lib/portfolio/rate-limit";
+import type { Portfolio } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -32,11 +34,7 @@ export async function POST(
 
   if (!row) return Response.json({ error: "not_found" }, { status: 404 });
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const activeVersion = (row.portfolio as any)?.versions?.find(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (v: any) => v.id === (row.portfolio as any).active_version_id,
-  );
+  const activeVersion = findActivePortfolioVersion(row.portfolio as Portfolio | null);
   if (!activeVersion) {
     return Response.json({ error: "no_active_version" }, { status: 500 });
   }
