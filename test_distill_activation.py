@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import unittest
 
-from distill import resolve_new_version_activation
+from portfolio_activation import resolve_new_version_activation
 
 
 class ResolveNewVersionActivationTests(unittest.TestCase):

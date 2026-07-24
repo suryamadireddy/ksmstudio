@@ -28,13 +28,18 @@ export async function getFeaturedPublicProjects(): Promise<PublicProjectCard[]> 
     const activeVersion = findActivePortfolioVersion(portfolio);
 
     // Pull summary from statement section if present, else voice.summary
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const statementSection = activeVersion?.public_summary?.sections?.find(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (s: any) => s.archetype === "statement",
+      (s) => s.archetype === "statement",
     );
-    const summary =
-      statementSection?.content?.text ?? activeVersion?.voice?.summary ?? null;
+    const statementText =
+      statementSection &&
+      typeof statementSection.content === "object" &&
+      statementSection.content !== null &&
+      "text" in statementSection.content &&
+      typeof (statementSection.content as { text?: unknown }).text === "string"
+        ? (statementSection.content as { text: string }).text
+        : null;
+    const summary = statementText ?? activeVersion?.voice?.summary ?? null;
 
     return [
       {

@@ -24,6 +24,7 @@ import anthropic
 
 from config import ANTHROPIC_API_KEY, REASONING_MODEL, PIPELINE_MODEL
 from db import get_service_client
+from portfolio_activation import resolve_new_version_activation
 
 client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
@@ -610,22 +611,6 @@ def pass3_content(
 
 
 # ── Main orchestrator ──────────────────────────────────────────────────────────
-
-def resolve_new_version_activation(
-    prior_versions: list,
-    current_active_id: str | None,
-    version_id: str,
-) -> tuple[str, str | None]:
-    """Decide status and active_version_id for a newly distilled version.
-
-    Spec: first version auto-activates; later versions stay draft/inactive
-    until the user approves — even if the previous active pointer was cleared
-    (e.g. after archiving the active version).
-    """
-    if not prior_versions:
-        return "active", version_id
-    return "draft", current_active_id
-
 
 def distill_idea(
     idea_id: str,
