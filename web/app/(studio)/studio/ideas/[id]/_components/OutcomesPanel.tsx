@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Idea, OutcomeEntry, Outcomes } from "@/lib/types";
 
@@ -136,6 +136,7 @@ function AddEntryForm({ ideaId, triage, onSaved, onCancel }: {
   const [actual, setActual] = useState("");
   const [deltaNote, setDeltaNote] = useState("");
   const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
 
   function handleDimensionChange(d: typeof ALL_DIMENSIONS[number]) {
     setDimension(d);
@@ -143,7 +144,8 @@ function AddEntryForm({ ideaId, triage, onSaved, onCancel }: {
   }
 
   async function handleSave() {
-    if (!title.trim() || !description.trim()) return;
+    if (!title.trim() || !description.trim() || savingRef.current) return;
+    savingRef.current = true;
     setSaving(true);
     const entry: Partial<OutcomeEntry> = {
       type,
@@ -153,13 +155,21 @@ function AddEntryForm({ ideaId, triage, onSaved, onCancel }: {
         ? { dimension, predicted, actual, delta_note: deltaNote }
         : null,
     };
-    await fetch(`/api/ideas/${ideaId}/outcomes`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "add_entry", entry }),
-    });
-    setSaving(false);
-    onSaved();
+    try {
+      const res = await fetch(`/api/ideas/${ideaId}/outcomes`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "add_entry", entry }),
+      });
+      if (!res.ok) {
+        console.error("outcomes save failed:", await res.text());
+        return;
+      }
+      onSaved();
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
   }
 
   return (
