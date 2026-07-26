@@ -1,4 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
+import { casMutatePortfolio } from "@/lib/portfolio/cas";
+import type { Portfolio, PortfolioVersion } from "@/lib/types";
 import { randomUUID } from "node:crypto";
 
 export async function POST(
@@ -19,15 +21,11 @@ export async function POST(
 
   if (!row) return Response.json({ error: "not_found" }, { status: 404 });
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const portfolio = row.portfolio as any;
-  if (!portfolio?.versions) return Response.json({ error: "no_versions" }, { status: 400 });
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const source = portfolio.versions.find((v: any) => v.id === versionId);
+  const portfolio = row.portfolio as Portfolio | null;
+  const source = portfolio?.versions?.find((v) => v.id === versionId);
   if (!source) return Response.json({ error: "version_not_found" }, { status: 404 });
 
-  const newVersion = {
+  const newVersion: PortfolioVersion = {
     ...source,
     id: randomUUID(),
     created_at: new Date().toISOString(),
@@ -37,12 +35,14 @@ export async function POST(
     creative_brief: null,
   };
 
-  const versions = [...portfolio.versions, newVersion];
+  const result = await casMutatePortfolio(supabase, id, {
+    type: "append_version",
+    version: newVersion,
+  });
 
-  await supabase
-    .from("ideas")
-    .update({ portfolio: { ...portfolio, versions } })
-    .eq("id", id);
+  if (!result.ok) {
+    return Response.json({ error: result.error }, { status: result.status });
+  }
 
   return Response.json({ ok: true, version_id: newVersion.id });
 }

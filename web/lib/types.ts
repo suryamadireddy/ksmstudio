@@ -142,6 +142,9 @@ export interface Portfolio {
   versions: PortfolioVersion[];
   active_version_id: string | null;
 
+  /** Optimistic concurrency token for portfolio JSONB writers. */
+  updated_at?: string;
+
   // Deprecated — kept for backward-read compatibility.
   public_summary?: string | null;
   chatbot_context?: string | null;

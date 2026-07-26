@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { casMutatePortfolioPublish } from "@/lib/portfolio/cas";
 import { NextRequest, NextResponse } from "next/server";
 import type { Portfolio } from "@/lib/types";
 
@@ -12,7 +13,11 @@ function generateSlug(title: string): string {
     .slice(0, 60);
 }
 
-async function uniqueSlug(supabase: Awaited<ReturnType<typeof createClient>>, base: string, excludeId: string): Promise<string> {
+async function uniqueSlug(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  base: string,
+  excludeId: string,
+): Promise<string> {
   const { data } = await supabase
     .from("ideas")
     .select("id, portfolio")
@@ -20,7 +25,9 @@ async function uniqueSlug(supabase: Awaited<ReturnType<typeof createClient>>, ba
     .neq("id", excludeId);
 
   const existingSlugs = new Set(
-    (data ?? []).map((r: { portfolio?: { slug?: string } }) => r.portfolio?.slug).filter(Boolean)
+    (data ?? [])
+      .map((r: { portfolio?: { slug?: string } }) => r.portfolio?.slug)
+      .filter(Boolean),
   );
 
   if (!existingSlugs.has(base)) return base;
@@ -31,13 +38,16 @@ async function uniqueSlug(supabase: Awaited<ReturnType<typeof createClient>>, ba
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
   const { action, headline: providedHeadline } = await request.json();
 
   if (!["publish", "unpublish"].includes(action)) {
-    return NextResponse.json({ error: "action must be publish or unpublish" }, { status: 400 });
+    return NextResponse.json(
+      { error: "action must be publish or unpublish" },
+      { status: 400 },
+    );
   }
 
   const supabase = await createClient();
@@ -53,7 +63,10 @@ export async function POST(
 
   if (action === "publish") {
     if (!idea.triage) {
-      return NextResponse.json({ error: "Cannot publish an untriaged idea" }, { status: 422 });
+      return NextResponse.json(
+        { error: "Cannot publish an untriaged idea" },
+        { status: 422 },
+      );
     }
 
     const triage = idea.triage as { title?: string; triage_reasoning?: string };
@@ -67,36 +80,36 @@ export async function POST(
       existing?.headline ??
       (triage.triage_reasoning?.split(/[.!?]/)[0]?.trim() ?? title);
 
-    const portfolio: Portfolio = {
-      published: true,
-      published_at: existing?.published_at ?? new Date().toISOString(),
-      unpublished_at: null,
+    const result = await casMutatePortfolioPublish(supabase, id, {
+      type: "publish",
       slug: existing?.slug ?? slug,
       headline,
-      versions: existing?.versions ?? [],
-      active_version_id: existing?.active_version_id ?? null,
-      public_summary: existing?.public_summary ?? null,
-      chatbot_context: existing?.chatbot_context ?? null,
-    };
+    });
 
-    await supabase.from("ideas").update({ published: true, portfolio }).eq("id", id);
-    return NextResponse.json({ ok: true, slug: portfolio.slug, headline: portfolio.headline });
+    if (!result.ok) {
+      return NextResponse.json(
+        { error: result.error },
+        { status: result.status },
+      );
+    }
+
+    return NextResponse.json({
+      ok: true,
+      slug: result.portfolio.slug,
+      headline: result.portfolio.headline,
+    });
   }
 
-  // unpublish
-  const existing = (idea.portfolio ?? {}) as Partial<Portfolio>;
-  const portfolio: Portfolio = {
-    published: false,
-    published_at: existing.published_at ?? null,
-    unpublished_at: new Date().toISOString(),
-    slug: existing.slug ?? "",
-    headline: existing.headline ?? "",
-    versions: existing.versions ?? [],
-    active_version_id: existing.active_version_id ?? null,
-    public_summary: existing.public_summary ?? null,
-    chatbot_context: existing.chatbot_context ?? null,
-  };
+  const result = await casMutatePortfolioPublish(supabase, id, {
+    type: "unpublish",
+  });
 
-  await supabase.from("ideas").update({ published: false, portfolio }).eq("id", id);
+  if (!result.ok) {
+    return NextResponse.json(
+      { error: result.error },
+      { status: result.status },
+    );
+  }
+
   return NextResponse.json({ ok: true });
 }
