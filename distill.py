@@ -24,6 +24,7 @@ import anthropic
 
 from config import ANTHROPIC_API_KEY, REASONING_MODEL, PIPELINE_MODEL
 from db import get_service_client
+from portfolio_cas import cas_append_distilled_version
 
 client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
@@ -673,7 +674,10 @@ def distill_idea(
     else:
         content = pass3_content(character_card, presentation_spec, idea, creative_brief)
 
-    # Assemble version
+    # Assemble version content. Status / active_version_id / parent are
+    # finalized at CAS write time against the freshest portfolio snapshot so
+    # concurrent branch/activate/publish during the long LLM window cannot be
+    # clobbered by a stale read-modify-write.
     version_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc).isoformat()
     new_version = {
@@ -687,27 +691,19 @@ def distill_idea(
         "public_summary": content["public_summary"],
         "chatbot_context": content["chatbot_context"],
         "voice": content["voice"],
-        "status": "draft" if prior_versions else "active",
+        "status": "draft",
     }
 
-    # Write to Supabase
-    updated_versions = list(prior_versions) + [new_version]
-    active_version_id = portfolio.get("active_version_id")
-    if not active_version_id:
-        active_version_id = version_id  # first version auto-activates
-
-    updated_portfolio = {
-        **portfolio,
-        "versions": updated_versions,
-        "active_version_id": active_version_id,
-    }
-
-    write_result = db.table("ideas").update({"portfolio": updated_portfolio}).eq("id", idea_id).execute()
-    if not write_result.data:
-        raise RuntimeError(f"Supabase update returned no data — update may have failed. Response: {write_result}")
+    updated_portfolio = cas_append_distilled_version(db, idea_id, new_version)
+    final_version = next(
+        v for v in updated_portfolio["versions"] if v["id"] == version_id
+    )
 
     print(f"\n\033[32m✓ Version created.\033[0m  id: \033[1m{version_id}\033[0m", file=sys.stderr)
-    print(f"  Status: {'active (first version)' if not prior_versions else 'draft (approve to activate)'}", file=sys.stderr)
+    print(
+        f"  Status: {'active (first version)' if final_version['status'] == 'active' else 'draft (approve to activate)'}",
+        file=sys.stderr,
+    )
     print(f"\n{'═' * 60}\n", file=sys.stderr)
 
     # Print version id as last stdout line (consumed by studio UI)

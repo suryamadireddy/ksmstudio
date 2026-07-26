@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { casMutatePortfolio } from "@/lib/portfolio/cas";
 
 export async function POST(
   _req: Request,
@@ -9,31 +10,14 @@ export async function POST(
   if (!user) return Response.json({ error: "unauthorized" }, { status: 401 });
 
   const { id, versionId } = await params;
-
-  const { data: row } = await supabase
-    .from("ideas")
-    .select("portfolio")
-    .eq("id", id)
-    .single();
-
-  if (!row) return Response.json({ error: "not_found" }, { status: 404 });
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const portfolio = row.portfolio as any;
-  if (!portfolio?.versions) return Response.json({ error: "no_versions" }, { status: 400 });
-
-  // Archive previous active, activate target
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const versions = portfolio.versions.map((v: any) => {
-    if (v.id === versionId) return { ...v, status: "active" };
-    if (v.status === "active") return { ...v, status: "archived" };
-    return v;
+  const result = await casMutatePortfolio(supabase, id, {
+    type: "activate",
+    versionId,
   });
 
-  await supabase
-    .from("ideas")
-    .update({ portfolio: { ...portfolio, versions, active_version_id: versionId } })
-    .eq("id", id);
+  if (!result.ok) {
+    return Response.json({ error: result.error }, { status: result.status });
+  }
 
   return Response.json({ ok: true });
 }

@@ -1,5 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
-import type { AccentColor, VisualRegister } from "@/lib/types";
+import { casMutatePortfolio } from "@/lib/portfolio/cas";
+import type { AccentColor, Portfolio, PortfolioVersion, VisualRegister } from "@/lib/types";
+import { randomUUID } from "node:crypto";
 
 interface PresentationPatch {
   accent_color?: AccentColor;
@@ -27,16 +29,10 @@ export async function PATCH(
 
   if (!row) return Response.json({ error: "not_found" }, { status: 404 });
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const portfolio = row.portfolio as any;
-  if (!portfolio?.versions) return Response.json({ error: "no_versions" }, { status: 400 });
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const source = portfolio.versions.find((v: any) => v.id === versionId);
+  const portfolio = row.portfolio as Portfolio | null;
+  const source = portfolio?.versions?.find((v) => v.id === versionId);
   if (!source) return Response.json({ error: "version_not_found" }, { status: 404 });
 
-  // Manual edits create a new draft branched from the source
-  const { randomUUID } = await import("node:crypto");
   const updatedPresentation = {
     ...source.presentation,
     ...(patch.accent_color ? { accent_color: patch.accent_color } : {}),
@@ -58,7 +54,7 @@ export async function PATCH(
     );
   }
 
-  const newVersion = {
+  const newVersion: PortfolioVersion = {
     ...source,
     id: randomUUID(),
     created_at: new Date().toISOString(),
@@ -69,12 +65,14 @@ export async function PATCH(
     public_summary: { ...source.public_summary, sections: updatedSections },
   };
 
-  const versions = [...portfolio.versions, newVersion];
+  const result = await casMutatePortfolio(supabase, id, {
+    type: "append_version",
+    version: newVersion,
+  });
 
-  await supabase
-    .from("ideas")
-    .update({ portfolio: { ...portfolio, versions } })
-    .eq("id", id);
+  if (!result.ok) {
+    return Response.json({ error: result.error }, { status: result.status });
+  }
 
   return Response.json({ ok: true, version_id: newVersion.id });
 }

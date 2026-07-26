@@ -232,7 +232,8 @@ export function PortfolioTab({ idea }: { idea: Idea }) {
                   selectedVersion.status !== "active" && (
                     <button
                       onClick={() => handleActivate(selectedVersion.id)}
-                      className="rounded px-2.5 py-1 text-[11px] font-medium transition-colors"
+                      disabled={generating}
+                      className="rounded px-2.5 py-1 text-[11px] font-medium transition-colors disabled:opacity-40"
                       style={{
                         backgroundColor: "rgba(74,222,128,0.15)",
                         color: "#4ade80",
@@ -244,7 +245,8 @@ export function PortfolioTab({ idea }: { idea: Idea }) {
                 {selectedVersion && selectedVersion.status !== "archived" && (
                   <button
                     onClick={() => handleArchive(selectedVersion.id)}
-                    className="rounded px-2.5 py-1 text-[11px] transition-colors"
+                    disabled={generating}
+                    className="rounded px-2.5 py-1 text-[11px] transition-colors disabled:opacity-40"
                     style={{ color: "var(--studio-fg-muted)" }}
                   >
                     Archive
@@ -382,9 +384,14 @@ export function PortfolioTab({ idea }: { idea: Idea }) {
                             e.stopPropagation();
                             handleActivate(v.id);
                           }}
-                          className="rounded px-2 py-1 text-[11px] transition-colors"
+                          disabled={generating}
+                          className="rounded px-2 py-1 text-[11px] transition-colors disabled:opacity-40"
                           style={{ color: "#4ade80" }}
-                          title="Promote to active"
+                          title={
+                            generating
+                              ? "Unavailable while generating"
+                              : "Promote to active"
+                          }
                         >
                           ↑ Activate
                         </button>
@@ -394,9 +401,14 @@ export function PortfolioTab({ idea }: { idea: Idea }) {
                           e.stopPropagation();
                           handleBranch(v.id);
                         }}
-                        className="rounded px-2 py-1 text-[11px] transition-colors"
+                        disabled={generating}
+                        className="rounded px-2 py-1 text-[11px] transition-colors disabled:opacity-40"
                         style={{ color: "var(--studio-fg-muted)" }}
-                        title="Branch from here"
+                        title={
+                          generating
+                            ? "Unavailable while generating"
+                            : "Branch from here"
+                        }
                       >
                         ⑆ Branch
                       </button>
@@ -406,9 +418,14 @@ export function PortfolioTab({ idea }: { idea: Idea }) {
                             e.stopPropagation();
                             handleArchive(v.id);
                           }}
-                          className="rounded px-2 py-1 text-[11px] transition-colors"
+                          disabled={generating}
+                          className="rounded px-2 py-1 text-[11px] transition-colors disabled:opacity-40"
                           style={{ color: "var(--studio-fg-muted)" }}
-                          title="Archive"
+                          title={
+                            generating
+                              ? "Unavailable while generating"
+                              : "Archive"
+                          }
                         >
                           Archive
                         </button>
