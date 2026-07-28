@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { NextRequest } from "next/server";
+import { mergeDevelopmentKey } from "@/lib/development/merge";
 import { PIPELINE_MODEL } from "@/lib/models";
 
 export const dynamic = "force-dynamic";
@@ -717,13 +718,33 @@ export async function POST(request: NextRequest) {
           const parsed = parseArtifact(rawText, SECTION_MAPS[stage]);
           send({ stage_done: stage, label: STAGE_LABELS[stage] });
 
-          // Merge and write to Supabase
-          const currentDev = (currentIdea.development ?? {}) as Record<string, unknown>;
-          const updatedDev = { ...currentDev, [stage]: parsed };
-          await supabase
+          // Re-read development at write time. The pre-LLM snapshot can be
+          // minutes stale; merging into it would drop sibling keys written by
+          // concurrent artifact stages or sharpening.
+          const { data: latestIdea, error: latestError } = await supabase
+            .from("ideas")
+            .select("development")
+            .eq("id", idea_id)
+            .single();
+          if (latestError) {
+            throw new Error(
+              `Failed to reload development before saving ${stage}: ${latestError.message}`,
+            );
+          }
+
+          const currentDev = (latestIdea?.development ??
+            currentIdea.development ??
+            {}) as Record<string, unknown>;
+          const updatedDev = mergeDevelopmentKey(currentDev, stage, parsed);
+          const { error: writeError } = await supabase
             .from("ideas")
             .update({ development: updatedDev })
             .eq("id", idea_id);
+          if (writeError) {
+            throw new Error(
+              `Failed to save ${stage}: ${writeError.message}`,
+            );
+          }
 
           currentIdea = { ...currentIdea, development: updatedDev };
         }

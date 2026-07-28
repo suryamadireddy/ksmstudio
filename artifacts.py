@@ -32,6 +32,7 @@ import anthropic
 
 from config import ANTHROPIC_API_KEY, PIPELINE_MODEL as MODEL
 from db import get_client
+from development_utils import merge_development_key
 
 # ── Stage ordering ────────────────────────────────────────────────────────────
 
@@ -769,10 +770,21 @@ def fetch_idea(idea_id: str) -> dict:
 def save_artifact(idea_id: str, dev_key: str, value: dict, current_dev: dict) -> dict:
     """
     Merge one key into ideas.development and write to Supabase.
-    Returns the updated development dict.
+
+    Re-reads development at write time so a multi-minute LLM window cannot
+    clobber sibling keys written concurrently (other artifact stages or
+    sharpening). Returns the updated development dict.
     """
     db = get_client()
-    updated_dev = {**current_dev, dev_key: value}
+    result = (
+        db.table("ideas")
+        .select("development")
+        .eq("id", idea_id)
+        .single()
+        .execute()
+    )
+    fresh = (result.data or {}).get("development") or current_dev or {}
+    updated_dev = merge_development_key(fresh, dev_key, value)
     db.table("ideas").update({"development": updated_dev}).eq("id", idea_id).execute()
     return updated_dev
 
