@@ -31,6 +31,7 @@ from datetime import datetime, timezone
 
 import anthropic
 
+from anthropic_continuation import serialize_assistant_content_for_continuation
 from config import ANTHROPIC_API_KEY, PIPELINE_MODEL as MODEL
 from db import get_client
 
@@ -243,10 +244,11 @@ def stream_sharpening(client: anthropic.Anthropic, user_message: str) -> str:
             print()  # trailing newline
             break
 
-        # pause_turn: append assistant turn and continue
+        # pause_turn: append assistant turn and continue.
+        # Do not use bare model_dump() — null SDK fields cause HTTP 400.
         messages.append({
             "role": "assistant",
-            "content": [b.model_dump() for b in final.content],
+            "content": serialize_assistant_content_for_continuation(final.content),
         })
     else:
         print("\n\033[33m⚠ Hit continuation limit — output may be incomplete.\033[0m")
