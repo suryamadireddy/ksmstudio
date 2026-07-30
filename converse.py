@@ -34,7 +34,15 @@ import anthropic
 from dotenv import load_dotenv
 from supabase import create_client, Client
 
+from triage_utils import (
+    VALID_ASSUMPTION_STATUSES,
+    apply_kill_assumption_status,
+    triage_version_token,
+)
+
 load_dotenv()
+
+MAX_TRIAGE_CAS_ATTEMPTS = 3
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -633,33 +641,47 @@ def _update_kill_assumption_status(
     assumption_text: str,
     status: str,
 ) -> None:
-    """Update the status of a specific kill assumption in triage JSONB."""
-    result = (
-        supabase.table("ideas")
-        .select("triage")
-        .eq("id", idea_id)
-        .single()
-        .execute()
-    )
-    triage = result.data.get("triage") or {}
-    assumptions = triage.get("kill_assumptions", [])
+    """Update one kill-assumption status with triage_version compare-and-swap.
 
-    updated = False
-    for a in assumptions:
-        if isinstance(a, dict) and (
-            assumption_text.lower() in a["text"].lower()
-            or a["text"].lower() in assumption_text.lower()
-        ):
-            a["status"] = status
-            a["status_updated_at"] = datetime.now(timezone.utc).isoformat()
-            a["status_source"] = "conversation"
-            updated = True
-            break
+    Re-reads triage at write time and retries when a concurrent retriage bumps
+    triage_version, so a stale converse snapshot cannot wipe the new triage.
+    """
+    if status not in VALID_ASSUMPTION_STATUSES:
+        return
 
-    if updated:
-        triage["kill_assumptions"] = assumptions
-        supabase.table("ideas").update({"triage": triage}).eq("id", idea_id).execute()
+    for _ in range(MAX_TRIAGE_CAS_ATTEMPTS):
+        result = (
+            supabase.table("ideas")
+            .select("triage, triage_version")
+            .eq("id", idea_id)
+            .single()
+            .execute()
+        )
+        previous = (result.data or {}).get("triage") or {}
+        expected_version = triage_version_token(
+            (result.data or {}).get("triage_version"),
+            previous,
+        )
+        now = datetime.now(timezone.utc).isoformat()
+        updated, triage = apply_kill_assumption_status(
+            previous,
+            assumption_text,
+            status,
+            now,
+        )
+        if not updated:
+            return
 
+        write = (
+            supabase.table("ideas")
+            .update({"triage": triage})
+            .eq("id", idea_id)
+            .eq("triage_version", expected_version)
+            .execute()
+        )
+        if write.data:
+            return
+        # Zero rows → concurrent retriage (or another writer); retry.
 
 def _flag_for_retriage(
     supabase: Client,
