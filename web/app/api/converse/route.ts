@@ -3,6 +3,13 @@ import Anthropic from "@anthropic-ai/sdk";
 import { NextRequest } from "next/server";
 import type { Idea, JournalEntry, Conversation, Refinement, Outcomes } from "@/lib/types";
 import { CONVERSE_MODEL } from "@/lib/models";
+import {
+  applyKillAssumptionStatus,
+  isAssumptionStatus,
+  triageVersionToken,
+} from "@/lib/triage/mutate";
+
+const MAX_TRIAGE_CAS_ATTEMPTS = 3;
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
 
@@ -200,28 +207,54 @@ async function handleTriageInsight(supabase: any, ideaId: string, insight: Triag
     created_at: new Date().toISOString(),
   });
 
-  // Update kill assumption status if applicable
-  if (insight.assumptionText && insight.assumptionStatus &&
-      ["validated", "invalidated", "weakened", "strengthened"].includes(insight.assumptionStatus)) {
-    const { data } = await supabase.from("ideas").select("triage").eq("id", ideaId).single();
-    const triage = (data as any)?.triage ?? {};
-    const assumptions: any[] = triage.kill_assumptions ?? [];
-    let updated = false;
-    for (const a of assumptions) {
-      if (typeof a === "object" && (
-        insight.assumptionText.toLowerCase().includes((a.text as string).toLowerCase()) ||
-        (a.text as string).toLowerCase().includes(insight.assumptionText.toLowerCase())
-      )) {
-        a.status = insight.assumptionStatus;
-        a.status_updated_at = new Date().toISOString();
-        a.status_source = "conversation";
-        updated = true;
+  // Update kill assumption status if applicable. Re-read + CAS on
+  // triage_version so a concurrent retriage is not overwritten by a stale
+  // full-blob write from this converse turn.
+  if (
+    insight.assumptionText &&
+    insight.assumptionStatus &&
+    isAssumptionStatus(insight.assumptionStatus)
+  ) {
+    const assumptionText = insight.assumptionText;
+    const assumptionStatus = insight.assumptionStatus;
+    for (let attempt = 0; attempt < MAX_TRIAGE_CAS_ATTEMPTS; attempt++) {
+      const { data, error } = await supabase
+        .from("ideas")
+        .select("triage, triage_version")
+        .eq("id", ideaId)
+        .single();
+
+      if (error || !data) break;
+
+      const previous = (data as { triage?: unknown }).triage as
+        | Record<string, unknown>
+        | null;
+      const expectedVersion = triageVersionToken(
+        (data as { triage_version?: number | null }).triage_version,
+        previous,
+      );
+      const result = applyKillAssumptionStatus(
+        previous,
+        assumptionText,
+        assumptionStatus,
+      );
+
+      if (!result.updated) break;
+
+      const { data: updated, error: updateError } = await supabase
+        .from("ideas")
+        .update({ triage: result.triage })
+        .eq("id", ideaId)
+        .eq("triage_version", expectedVersion)
+        .select("id");
+
+      if (updateError) {
+        console.error("triage assumption update error:", updateError);
         break;
       }
-    }
-    if (updated) {
-      triage.kill_assumptions = assumptions;
-      await supabase.from("ideas").update({ triage }).eq("id", ideaId);
+
+      if (updated && updated.length > 0) break;
+      // Zero rows → retriage (or another writer) won; retry on fresh triage.
     }
   }
 
