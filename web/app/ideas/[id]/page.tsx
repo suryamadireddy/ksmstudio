@@ -10,6 +10,7 @@ import {
   type Message,
   type Conversation,
 } from "@/lib/types";
+import { normalizePersonas } from "@/lib/personas/normalize";
 
 function serverSupabase() {
   return createClient(
@@ -220,7 +221,7 @@ function ArtifactsTab({ idea }: { idea: Idea }) {
   const prd = d?.prd;
   const mvp = d?.mvp_scope;
   const next = d?.next_steps;
-  const personas = d?.personas ?? [];
+  const personas = normalizePersonas(d?.personas);
 
   if (!prd && !mvp && !next && !personas.length) {
     return (

@@ -41,6 +41,7 @@ load_dotenv()
 # ---------------------------------------------------------------------------
 
 from config import CONVERSE_MODEL as MODEL
+from personas_utils import normalize_personas
 MAX_TOKENS = 2048
 EXTRACTION_HEADER = "PROPOSED EXTRACTION:"
 TRIAGE_INSIGHT_HEADER = "TRIAGE INSIGHT:"
@@ -248,8 +249,10 @@ The assumptions that must be true for me to work:
 
     # --- development block ---
     if dev.get("problem_statement"):
+        # sharpen may store personas as a raw string (or single object) when
+        # JSON parsing fails — never iterate the raw value.
         personas_text = ""
-        for p in dev.get("personas") or []:
+        for p in normalize_personas(dev.get("personas")):
             personas_text += (
                 f"- {p.get('label')}: {p.get('description')}\n"
                 f"  Their pain: {p.get('pain')}\n"

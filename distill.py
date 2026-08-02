@@ -24,6 +24,7 @@ import anthropic
 
 from config import ANTHROPIC_API_KEY, REASONING_MODEL, PIPELINE_MODEL
 from db import get_service_client
+from personas_utils import normalize_personas
 
 client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
@@ -464,12 +465,7 @@ def _build_idea_context(idea: dict) -> str:
         for q in d.get("open_questions", []):
             lines.append(f"  - {q}")
         lines.append("")
-        personas = d.get("personas") or []
-        if isinstance(personas, str):
-            try:
-                personas = json.loads(personas)
-            except Exception:
-                personas = []
+        personas = normalize_personas(d.get("personas"))
         if personas:
             lines.append("Personas:")
             for p in personas:

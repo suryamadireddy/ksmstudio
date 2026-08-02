@@ -3,6 +3,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { NextRequest } from "next/server";
 import type { Idea, JournalEntry, Conversation, Refinement, Outcomes } from "@/lib/types";
 import { CONVERSE_MODEL } from "@/lib/models";
+import { normalizePersonas } from "@/lib/personas/normalize";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
 
@@ -29,20 +30,13 @@ ${(t.kill_assumptions ?? []).map((a) =>
     typeof a === "object" ? `- ${a.text} [${a.status ?? "untested"}]` : `- ${a}`
 ).join("\n")}` : "";
 
-  const personas = (() => {
-    const raw = d?.personas;
-    if (Array.isArray(raw)) return raw;
-    if (typeof raw === "string") {
-      try { return JSON.parse(raw); } catch { return []; }
-    }
-    return [];
-  })();
+  const personas = normalizePersonas(d?.personas);
 
   const devBlock = d?.problem_statement ? `### What I am
 Problem I solve: ${d.problem_statement}
 Core hypothesis: ${d.core_hypothesis}
 Who I am built for:
-${personas.map((p: any) => `- ${p.label}: ${p.description}\n  Pain: ${p.pain}\n  Gain: ${p.gain}`).join("\n")}
+${personas.map((p) => `- ${p.label}: ${p.description}\n  Pain: ${p.pain}\n  Gain: ${p.gain}`).join("\n")}
 Open questions:
 ${(d.open_questions ?? []).map((q) => `- ${q}`).join("\n")}` : "";
 

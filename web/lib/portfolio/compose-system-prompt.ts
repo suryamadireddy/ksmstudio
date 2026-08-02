@@ -1,4 +1,5 @@
 import type { ChatbotContext } from "@/lib/types";
+import { normalizePersonas } from "@/lib/personas/normalize";
 
 interface ComposeArgs {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -14,7 +15,9 @@ interface ComposeArgs {
 function buildDevBlock(dev: Record<string, unknown>): string {
   if (!dev?.problem_statement) return "";
 
-  const personas = (dev.personas as Array<Record<string, string>> ?? [])
+  // sharpen may store personas as a raw string (or single object) when JSON
+  // parsing fails — never call .map on the raw value.
+  const personas = normalizePersonas(dev.personas)
     .map(
       (p) =>
         `- ${p.label}: ${p.description}\n  Their pain: ${p.pain}\n  What success looks like for them: ${p.gain}`,
