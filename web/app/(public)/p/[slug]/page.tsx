@@ -1,19 +1,23 @@
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { ideaDisplayName, type Idea } from "@/lib/types";
+import { toPublicCaseStudy } from "@/lib/public/case-study";
+import type { Idea } from "@/lib/types";
 import type { Metadata } from "next";
 
 export const dynamic = "force-dynamic";
 
-async function getIdea(slug: string): Promise<Idea | null> {
+async function getPublicCaseStudy(slug: string) {
   const supabase = await createClient();
   const { data } = await supabase
     .from("ideas")
-    .select("id, raw_input, domain, state, created_at, triage, development, portfolio")
+    .select(
+      "id, raw_input, domain, state, created_at, published, triage, development, portfolio",
+    )
     .eq("published", true)
     .eq("portfolio->>slug", slug)
     .single();
-  return (data as Idea) ?? null;
+
+  return toPublicCaseStudy(data as Idea | null);
 }
 
 export async function generateMetadata({
@@ -22,12 +26,11 @@ export async function generateMetadata({
   params: Promise<{ slug: string }>;
 }): Promise<Metadata> {
   const { slug } = await params;
-  const idea = await getIdea(slug);
-  if (!idea) return { title: "Not found" };
-  const name = ideaDisplayName(idea);
+  const study = await getPublicCaseStudy(slug);
+  if (!study) return { title: "Not found" };
   return {
-    title: `${name} | KSM Studio`,
-    description: idea.triage?.triage_reasoning ?? undefined,
+    title: `${study.name} | KSM Studio`,
+    description: study.metaDescription ?? undefined,
   };
 }
 
@@ -37,14 +40,8 @@ export default async function PublicIdeaPage({
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
-  const idea = await getIdea(slug);
-  if (!idea) notFound();
-
-  const name = ideaDisplayName(idea);
-  const t = idea.triage;
-  const d = idea.development;
-
-  if (!idea.published || !idea.portfolio) notFound();
+  const study = await getPublicCaseStudy(slug);
+  if (!study) notFound();
 
   return (
     <main className="min-h-screen bg-white">
@@ -53,57 +50,57 @@ export default async function PublicIdeaPage({
           KSM Studio · Case Study
         </p>
         <h1 className="mb-6 font-serif text-4xl font-normal leading-tight tracking-tight text-gray-900">
-          {name}
+          {study.name}
         </h1>
 
-        {idea.portfolio?.headline && (
-          <p className="mb-6 text-xl text-gray-600">{idea.portfolio.headline}</p>
+        {study.headline && (
+          <p className="mb-6 text-xl text-gray-600">{study.headline}</p>
         )}
 
-        {t?.who_benefits && (
-          <p className="mb-10 text-lg text-gray-500">{t.who_benefits}</p>
+        {study.whoBenefits && (
+          <p className="mb-10 text-lg text-gray-500">{study.whoBenefits}</p>
         )}
 
-        {d?.problem_statement && (
+        {study.problemStatement && (
           <section className="mb-10">
             <h2 className="mb-3 text-xs font-semibold uppercase tracking-widest text-gray-400">
               Problem
             </h2>
             <p className="text-base leading-relaxed text-gray-700">
-              {d.problem_statement}
+              {study.problemStatement}
             </p>
           </section>
         )}
 
-        {d?.core_hypothesis && (
+        {study.coreHypothesis && (
           <section className="mb-10">
             <h2 className="mb-3 text-xs font-semibold uppercase tracking-widest text-gray-400">
               Core Hypothesis
             </h2>
             <p className="text-base leading-relaxed text-gray-700">
-              {d.core_hypothesis}
+              {study.coreHypothesis}
             </p>
           </section>
         )}
 
-        {d?.prd?.solution && (
+        {study.solution && (
           <section className="mb-10">
             <h2 className="mb-3 text-xs font-semibold uppercase tracking-widest text-gray-400">
               Solution
             </h2>
             <p className="text-base leading-relaxed text-gray-700">
-              {d.prd.solution}
+              {study.solution}
             </p>
           </section>
         )}
 
-        {d?.personas && d.personas.length > 0 && (
+        {study.personas.length > 0 && (
           <section className="mb-10">
             <h2 className="mb-4 text-xs font-semibold uppercase tracking-widest text-gray-400">
               Who It&apos;s For
             </h2>
             <div className="space-y-4">
-              {d.personas.map((p, i) => (
+              {study.personas.map((p, i) => (
                 <div key={i} className="rounded-lg border border-gray-100 bg-gray-50 p-5">
                   <p className="mb-1 font-medium text-gray-900">{p.label}</p>
                   <p className="mb-3 text-sm text-gray-500">{p.description}</p>
@@ -116,25 +113,6 @@ export default async function PublicIdeaPage({
                 </div>
               ))}
             </div>
-          </section>
-        )}
-
-        {t?.kill_assumptions && t.kill_assumptions.length > 0 && (
-          <section className="mb-10">
-            <h2 className="mb-3 text-xs font-semibold uppercase tracking-widest text-gray-400">
-              Key Assumptions
-            </h2>
-            <ul className="space-y-2">
-              {t.kill_assumptions.map((a, i) => {
-                const text = typeof a === "object" ? a.text : a;
-                return (
-                  <li key={i} className="flex gap-2 text-sm text-gray-700">
-                    <span className="mt-2 h-1 w-1 shrink-0 rounded-full bg-gray-400" />
-                    {text}
-                  </li>
-                );
-              })}
-            </ul>
           </section>
         )}
       </div>
