@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { toPublicCaseStudy } from "./case-study.ts";
-import type { Idea } from "../types.ts";
+import { toPublicCaseStudy } from "./case-study";
+import type { Idea } from "@/lib/types";
 
 function baseIdea(overrides: Partial<Idea> = {}): Idea {
   return {
@@ -37,6 +37,9 @@ function baseIdea(overrides: Partial<Idea> = {}): Idea {
       ],
       prd: {
         solution: "Rank and cluster alerts with human-readable context.",
+        user_stories: [],
+        out_of_scope: [],
+        success_metrics: [],
       },
     },
     portfolio: {
@@ -64,7 +67,10 @@ describe("toPublicCaseStudy", () => {
   });
 
   it("returns null without a portfolio", () => {
-    assert.equal(toPublicCaseStudy(baseIdea({ portfolio: null as unknown as Idea["portfolio"] })), null);
+    assert.equal(
+      toPublicCaseStudy(baseIdea({ portfolio: null as unknown as Idea["portfolio"] })),
+      null,
+    );
   });
 
   it("projects curated public fields and omits private triage evaluation", () => {
@@ -98,6 +104,7 @@ describe("toPublicCaseStudy", () => {
       baseIdea({
         development: {
           problem_statement: "x",
+          // Runtime shape sharpen may persist when JSON parse fails.
           personas: JSON.stringify({
             label: "Solo founder",
             description: "Builds alone",
@@ -105,7 +112,7 @@ describe("toPublicCaseStudy", () => {
             gain: "Focus",
             proxy_for_real_user: false,
           }),
-        },
+        } as Idea["development"],
       }),
     );
     assert.ok(study);

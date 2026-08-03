@@ -1,5 +1,5 @@
-import type { Idea, Persona, Portfolio } from "../types.ts";
-import { ideaDisplayName } from "../types.ts";
+import type { Idea, Persona, Portfolio } from "@/lib/types";
+import { ideaDisplayName } from "@/lib/types";
 
 /**
  * Curated public case-study fields for `/p/[slug]`.
