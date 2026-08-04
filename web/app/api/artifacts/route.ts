@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { NextRequest } from "next/server";
 import { PIPELINE_MODEL } from "@/lib/models";
+import { parseJsonAllowingLineComments } from "@/lib/json/parse";
 
 export const dynamic = "force-dynamic";
 
@@ -428,11 +429,11 @@ function parseField(content: string, fieldType: FieldType): unknown {
 
   if (fieldType === "json") {
     const fenced = content.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
-    let jsonText = fenced ? fenced[1].trim() : content.trim();
-    // Strip line comments
-    jsonText = jsonText.replace(/\/\/[^\n]*/g, "");
+    const jsonText = fenced ? fenced[1].trim() : content.trim();
+    // Strip // comments outside strings only. A naive // strip also matches
+    // inside https:// URL values and persists truncated garbage on failure.
     try {
-      return JSON.parse(jsonText);
+      return parseJsonAllowingLineComments(jsonText);
     } catch {
       return jsonText;
     }
@@ -537,14 +538,21 @@ function buildBuilderBriefContext(idea: Record<string, any>): string {
   const fmtList = (items: unknown[]): string =>
     items.length > 0 ? items.map((i) => `- ${i}`).join("\n") : "(none)";
 
-  const mvpCutRaw = (mvp.mvp_cut ?? []) as Array<Record<string, unknown>>;
-  const mvpCutNames = mvpCutRaw.map((f) =>
-    typeof f === "object" ? (f.name as string) ?? JSON.stringify(f) : String(f)
+  // Failed JSON parses may leave these as raw strings. Calling .map on a
+  // string would throw; iterating characters would poison the brief prompt.
+  const mvpCutRaw = mvp.mvp_cut ?? [];
+  const mvpCutNames = (Array.isArray(mvpCutRaw) ? mvpCutRaw : [mvpCutRaw]).map((f) =>
+    f && typeof f === "object"
+      ? ((f as Record<string, unknown>).name as string) ?? JSON.stringify(f)
+      : String(f)
   );
 
-  const resActionsRaw = (nxt.resolution_actions ?? []) as Array<Record<string, unknown>>;
-  const resActionTexts = resActionsRaw.map((a) =>
-    typeof a === "object" ? (a.action as string) ?? JSON.stringify(a) : String(a)
+  const resActionsRaw = nxt.resolution_actions ?? [];
+  const resActionTexts = (Array.isArray(resActionsRaw) ? resActionsRaw : [resActionsRaw]).map(
+    (a) =>
+      a && typeof a === "object"
+        ? ((a as Record<string, unknown>).action as string) ?? JSON.stringify(a)
+        : String(a)
   );
 
   return (
