@@ -28,6 +28,8 @@ import sys
 from datetime import datetime, timezone
 from typing import Union
 
+from json_utils import loads_json_allowing_line_comments
+
 import anthropic
 
 from config import ANTHROPIC_API_KEY, PIPELINE_MODEL as MODEL
@@ -468,13 +470,14 @@ def _parse_field(content: str, field_type: str) -> Union[str, list, dict]:
     if field_type == "json":
         fenced = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", content)
         json_text = fenced.group(1).strip() if fenced else content
-        # Strip // line comments (Claude sometimes adds them)
-        json_text = re.sub(r"//[^\n]*", "", json_text)
+        # Strip // line comments outside strings only. A naive // strip also
+        # matches inside https:// URL values and persists truncated garbage.
         try:
-            return json.loads(json_text)
+            return loads_json_allowing_line_comments(json_text)
         except json.JSONDecodeError as exc:
             print(f"\033[33m  ⚠ JSON parse failed: {exc}\033[0m")
-            return json_text  # preserve raw so data isn't silently lost
+            # Preserve the original text (not a comment-stripped truncation).
+            return json_text
 
     # "list": try numbered list, then bullets, then line-split
     numbered = re.findall(r"^\d+\.\s+(.+)$", content, re.MULTILINE)
@@ -631,10 +634,16 @@ def build_builder_brief_context(idea: dict) -> str:
     # ── MVP scope (compressed: names only for mvp_cut, full build_sequence) ──
     mvp = dev.get("mvp_scope") or {}
     mvp_cut_raw = mvp.get("mvp_cut") or []
-    if mvp_cut_raw and isinstance(mvp_cut_raw[0], dict):
+    # Guard: failed JSON parses may leave these fields as raw strings. Iterating
+    # a string would character-split into dozens of garbage bullets.
+    if isinstance(mvp_cut_raw, str):
+        mvp_cut_names = [mvp_cut_raw]
+    elif mvp_cut_raw and isinstance(mvp_cut_raw[0], dict):
         mvp_cut_names = [f.get("name", str(f)) for f in mvp_cut_raw]
-    else:
+    elif isinstance(mvp_cut_raw, list):
         mvp_cut_names = [str(f) for f in mvp_cut_raw]
+    else:
+        mvp_cut_names = [str(mvp_cut_raw)]
     build_sequence = mvp.get("build_sequence") or []
 
     # ── Next steps (compressed: first_action, critical_path, action texts only)
@@ -642,10 +651,14 @@ def build_builder_brief_context(idea: dict) -> str:
     first_action = nxt.get("first_action") or ""
     critical_path = nxt.get("critical_path") or ""
     res_actions_raw = nxt.get("resolution_actions") or []
-    if res_actions_raw and isinstance(res_actions_raw[0], dict):
+    if isinstance(res_actions_raw, str):
+        res_action_texts = [res_actions_raw]
+    elif res_actions_raw and isinstance(res_actions_raw[0], dict):
         res_action_texts = [a.get("action", str(a)) for a in res_actions_raw]
-    else:
+    elif isinstance(res_actions_raw, list):
         res_action_texts = [str(a) for a in res_actions_raw]
+    else:
+        res_action_texts = [str(res_actions_raw)]
 
     def _fmt_list(items: list) -> str:
         return "\n".join(f"- {i}" for i in items) if items else "(none)"
