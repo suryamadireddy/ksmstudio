@@ -1,3 +1,4 @@
+import { safeAuthNextPath } from "@/lib/auth/safe-next";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { NextResponse, type NextRequest } from "next/server";
@@ -5,7 +6,7 @@ import { NextResponse, type NextRequest } from "next/server";
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get("code");
-  const next = searchParams.get("next") ?? "/studio";
+  const next = safeAuthNextPath(searchParams.get("next"));
 
   if (code) {
     const cookieStore = await cookies();
@@ -28,9 +29,9 @@ export async function GET(request: NextRequest) {
 
     const { error } = await supabase.auth.exchangeCodeForSession(code);
     if (!error) {
-      return NextResponse.redirect(`${origin}${next}`);
+      return NextResponse.redirect(new URL(next, origin));
     }
   }
 
-  return NextResponse.redirect(`${origin}/auth/login?error=oauth_failed`);
+  return NextResponse.redirect(new URL("/auth/login?error=oauth_failed", origin));
 }
