@@ -666,25 +666,40 @@ def _flag_for_retriage(
     idea_id: str,
     reason: str,
 ) -> None:
-    """Set retriage_pending column and append reason to retriage_reasons column."""
-    now = datetime.now(timezone.utc).isoformat()
-    result = (
-        supabase.table("ideas")
-        .select("retriage_reasons")
-        .eq("id", idea_id)
-        .single()
-        .execute()
+    """Append a retriage reason with compare-and-swap on retriage_reasons.
+
+    Retries when a concurrent flag/dismiss/retriage changes the reasons list so
+    we neither drop a sibling reason nor resurrect a list that was cleared.
+    """
+    from retriage_utils import (
+        MAX_RETRIAGE_CAS_ATTEMPTS,
+        append_retriage_reason,
+        cas_write_retriage_flags,
+        normalize_retriage_reasons,
     )
-    current_reasons = result.data.get("retriage_reasons") or []
-    current_reasons.append({
-        "reason": reason,
-        "flagged_at": now,
-        "source": "conversation",
-    })
-    supabase.table("ideas").update({
-        "retriage_pending": True,
-        "retriage_reasons": current_reasons,
-    }).eq("id", idea_id).execute()
+
+    for _ in range(MAX_RETRIAGE_CAS_ATTEMPTS):
+        result = (
+            supabase.table("ideas")
+            .select("retriage_reasons")
+            .eq("id", idea_id)
+            .single()
+            .execute()
+        )
+        expected = normalize_retriage_reasons(
+            (result.data or {}).get("retriage_reasons")
+        )
+        now = datetime.now(timezone.utc).isoformat()
+        next_reasons = append_retriage_reason(expected, reason, now)
+        if cas_write_retriage_flags(
+            supabase,
+            idea_id,
+            pending=True,
+            reasons=next_reasons,
+            expected=expected,
+        ):
+            return
+        # Zero rows → concurrent writer; retry with a fresh read.
 
 
 # ---------------------------------------------------------------------------

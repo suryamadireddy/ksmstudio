@@ -3,6 +3,8 @@ import Anthropic from "@anthropic-ai/sdk";
 import { NextRequest } from "next/server";
 import type { Idea, JournalEntry, Conversation, Refinement, Outcomes } from "@/lib/types";
 import { CONVERSE_MODEL } from "@/lib/models";
+import { casMutateRetriageFlags } from "@/lib/retriage/cas";
+import { appendRetriageReason } from "@/lib/retriage/mutate";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
 
@@ -225,19 +227,14 @@ async function handleTriageInsight(supabase: any, ideaId: string, insight: Triag
     }
   }
 
-  // Flag for retriage if recommended
+  // Flag for retriage if recommended (CAS so concurrent flag/dismiss/retriage
+  // cannot drop a reason or resurrect a cleared list from a stale snapshot).
   if (insight.recommendedAction === "retriage") {
-    const { data } = await supabase.from("ideas").select("retriage_reasons").eq("id", ideaId).single();
-    const currentReasons: any[] = (data as any)?.retriage_reasons ?? [];
-    currentReasons.push({
-      reason: insight.whatChanged,
-      flagged_at: new Date().toISOString(),
-      source: "conversation",
-    });
-    await supabase.from("ideas").update({
-      retriage_pending: true,
-      retriage_reasons: currentReasons,
-    }).eq("id", ideaId);
+    const now = new Date().toISOString();
+    await casMutateRetriageFlags(supabase, ideaId, (current) => ({
+      pending: true,
+      reasons: appendRetriageReason(current, insight.whatChanged, now),
+    }));
   }
 }
 
