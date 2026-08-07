@@ -4,6 +4,8 @@ import type { NextRequest } from "next/server";
 import { REASONING_MODEL } from "@/lib/models";
 import { TRIAGE_SYSTEM_PROMPT_TEMPLATE, COMPLETE_INTERVIEW_TOOL } from "@/lib/triage-shared";
 import type { Triage, TriageSnapshot } from "@/lib/types";
+import { casMutateRetriageFlags } from "@/lib/retriage/cas";
+import { applyRetriageClear } from "@/lib/retriage/mutate";
 
 export const dynamic = "force-dynamic";
 
@@ -137,6 +139,8 @@ export async function POST(req: NextRequest) {
   }
 
   const supabase = await createClient();
+  // Preserve converse flags that land after this request starts.
+  const clearBefore = new Date().toISOString();
 
   // Fetch the idea being re-triaged
   const { data: ideaRow, error: ideaError } = await supabase
@@ -144,7 +148,6 @@ export async function POST(req: NextRequest) {
     .select("id, raw_input, triage, triage_version, development")
     .eq("id", idea_id)
     .single();
-
   if (ideaError || !ideaRow) {
     return new Response(
       JSON.stringify({ error: "Idea not found" }),
@@ -257,14 +260,18 @@ export async function POST(req: NextRequest) {
             .update({
               triage: newTriage,
               triage_version: currentVersion + 1,
-              retriage_pending: false,
-              retriage_reasons: [],
             })
             .eq("id", idea_id);
 
           if (updateError) {
             send({ error: updateError.message });
           } else {
+            // Clear pre-session flags via CAS; keep reasons flagged during the
+            // long interview so concurrent converse insights are not wiped.
+            await casMutateRetriageFlags(supabase, idea_id, (current) =>
+              applyRetriageClear(current, clearBefore),
+            );
+
             // Write retriage conversation + messages
             const convId = crypto.randomUUID();
             await supabase.from("conversations").insert({

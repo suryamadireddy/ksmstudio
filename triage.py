@@ -919,11 +919,27 @@ def _build_retriage_context(
     return "\n".join(lines)
 
 
-def save_retriage(idea_id: str, new_triage_data: dict, transcript: list) -> None:
+def save_retriage(
+    idea_id: str,
+    new_triage_data: dict,
+    transcript: list,
+    clear_before: str | None = None,
+) -> None:
     """
     Append the current triage to triage_history, then replace the
     top-level triage with the new one. Increment triage_version column.
+
+    ``clear_before`` is the ISO timestamp when the retriage session started.
+    Reasons flagged after that instant are preserved so a concurrent converse
+    insight is not wiped by this save.
     """
+    from retriage_utils import (
+        MAX_RETRIAGE_CAS_ATTEMPTS,
+        apply_retriage_clear,
+        cas_write_retriage_flags,
+        normalize_retriage_reasons,
+    )
+
     db = get_client()
     validated = _validate_fields(new_triage_data)
 
@@ -956,12 +972,36 @@ def save_retriage(idea_id: str, new_triage_data: dict, transcript: list) -> None
         "triage_history": history,
     }
 
+    # Persist triage first; clear flags in a separate CAS so a concurrent
+    # converse append during this write is not silently dropped.
     db.table("ideas").update({
         "triage": new_triage,
         "triage_version": current_version + 1,
-        "retriage_pending": False,
-        "retriage_reasons": [],
     }).eq("id", idea_id).execute()
+
+    for _ in range(MAX_RETRIAGE_CAS_ATTEMPTS):
+        reasons_row = (
+            db.table("ideas")
+            .select("retriage_reasons")
+            .eq("id", idea_id)
+            .single()
+            .execute()
+        )
+        expected = normalize_retriage_reasons(
+            (reasons_row.data or {}).get("retriage_reasons")
+        )
+        remaining, pending = apply_retriage_clear(
+            expected,
+            clear_before=clear_before,
+        )
+        if cas_write_retriage_flags(
+            db,
+            idea_id,
+            pending=pending,
+            reasons=remaining,
+            expected=expected,
+        ):
+            break
 
     # Write retriage conversation + messages
     conv_id = str(uuid.uuid4())
@@ -990,6 +1030,8 @@ def run_retriage(idea_id: str) -> None:
     """
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
     db = get_client()
+    # Preserve converse flags that land after this session starts.
+    clear_before = datetime.now(timezone.utc).isoformat()
 
     # Fetch the idea with all history
     result = (
@@ -1082,7 +1124,7 @@ def run_retriage(idea_id: str) -> None:
     print("  Saving re-triage to Supabase...")
 
     try:
-        save_retriage(idea_id, idea_data, transcript)
+        save_retriage(idea_id, idea_data, transcript, clear_before=clear_before)
     except Exception as exc:
         print(f"\n\033[31m✗ Save failed:\033[0m {exc}")
         print("\nExtracted triage (not saved):")
