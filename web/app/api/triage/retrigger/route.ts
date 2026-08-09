@@ -3,6 +3,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { NextRequest } from "next/server";
 import { REASONING_MODEL } from "@/lib/models";
 import { TRIAGE_SYSTEM_PROMPT_TEMPLATE, COMPLETE_INTERVIEW_TOOL } from "@/lib/triage-shared";
+import { buildRetriageSeedMessage } from "@/lib/triage/retriage-messages";
 import type { Triage, TriageSnapshot } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -174,17 +175,17 @@ export async function POST(req: NextRequest) {
     retraigeContext
   );
 
-  // Seed opener if no messages provided
+  // Seed opener if no messages provided. Echo it on the SSE stream so the
+  // client can keep Anthropic-valid alternating history on subsequent turns.
+  let seededMessages:
+    | Array<{ role: "user" | "assistant"; content: string }>
+    | null = null;
   if (messages.length === 0) {
-    messages = [
-      {
-        role: "user",
-        content:
-          `I want to re-triage this existing idea: ` +
-          `"${currentTriage.title ?? (ideaRow.raw_input as string) ?? ""}". ` +
-          "Here is what I want to revisit or update about it.",
-      },
-    ];
+    const seed = buildRetriageSeedMessage(
+      String(currentTriage.title ?? (ideaRow.raw_input as string) ?? "")
+    );
+    messages = [{ role: seed.role, content: seed.content }];
+    seededMessages = messages;
   }
 
   const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -197,6 +198,10 @@ export async function POST(req: NextRequest) {
       };
 
       try {
+        if (seededMessages) {
+          send({ seeded_messages: seededMessages });
+        }
+
         const stream = anthropic.messages.stream({
           model: REASONING_MODEL,
           max_tokens: 1024,

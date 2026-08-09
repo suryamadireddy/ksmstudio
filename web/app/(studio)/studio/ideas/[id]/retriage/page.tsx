@@ -3,13 +3,12 @@
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import {
+  mergeSeededMessages,
+  type RetriageChatMessage,
+} from "@/lib/triage/retriage-messages";
 
-type Role = "user" | "assistant";
-interface ChatMessage {
-  role: Role;
-  content: string;
-  streaming?: boolean;
-}
+type ChatMessage = RetriageChatMessage;
 
 interface TriageSummary {
   title: string;
@@ -91,6 +90,18 @@ export default function RetrtagePage() {
 
             if (evt.error) {
               throw new Error(String(evt.error));
+            }
+
+            if (Array.isArray(evt.seeded_messages)) {
+              setMessages((prev) =>
+                mergeSeededMessages(
+                  prev,
+                  evt.seeded_messages as Array<{
+                    role: "user" | "assistant";
+                    content: string;
+                  }>
+                )
+              );
             }
 
             if (evt.text) {
@@ -326,7 +337,7 @@ export default function RetrtagePage() {
       {/* Messages */}
       <div className="flex-1 overflow-y-auto py-6">
         <div className="space-y-4">
-          {messages.map((msg, i) => (
+          {messages.filter((msg) => !msg.hidden).map((msg, i) => (
             <div
               key={i}
               className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
@@ -359,7 +370,8 @@ export default function RetrtagePage() {
             </div>
           ))}
 
-          {loading && messages[messages.length - 1]?.role !== "assistant" && (
+          {loading &&
+            messages.filter((m) => !m.hidden).at(-1)?.role !== "assistant" && (
             <div className="flex justify-start">
               <div
                 className="rounded-xl border px-4 py-3"
