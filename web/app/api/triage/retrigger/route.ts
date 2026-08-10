@@ -3,6 +3,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { NextRequest } from "next/server";
 import { REASONING_MODEL } from "@/lib/models";
 import { TRIAGE_SYSTEM_PROMPT_TEMPLATE, COMPLETE_INTERVIEW_TOOL } from "@/lib/triage-shared";
+import { sanitizeMessagesForAnthropic } from "@/lib/triage/history";
 import type { Triage, TriageSnapshot } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -186,6 +187,18 @@ export async function POST(req: NextRequest) {
       },
     ];
   }
+
+  const sanitized = sanitizeMessagesForAnthropic(messages);
+  if (!sanitized) {
+    return new Response(
+      JSON.stringify({
+        error:
+          "messages must alternate user/assistant, start and end with user, and have non-empty content",
+      }),
+      { status: 400, headers: { "Content-Type": "application/json" } },
+    );
+  }
+  messages = sanitized;
 
   const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
   const encoder = new TextEncoder();
