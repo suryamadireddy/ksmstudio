@@ -92,7 +92,11 @@ export default function PublishToggle({ idea }: { idea: Idea }) {
           </div>
         ) : (
           <button
-            onClick={() => hasNick ? (setError(null), setDialog("publish")) : undefined}
+            onClick={() => {
+              if (!hasNick) return;
+              setError(null);
+              setDialog("publish");
+            }}
             disabled={!hasNick}
             title={!hasNick ? "Triage this idea before publishing." : undefined}
             className="rounded border px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-40"
