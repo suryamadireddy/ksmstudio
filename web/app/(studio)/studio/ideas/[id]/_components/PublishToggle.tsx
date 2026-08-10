@@ -12,32 +12,55 @@ export default function PublishToggle({ idea }: { idea: Idea }) {
     (idea.triage?.triage_reasoning?.split(/[.!?]/)[0]?.trim() ?? "")
   );
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const isPublished = idea.published ?? false;
   const hasNick = !!idea.triage;
 
   async function doPublish() {
     setLoading(true);
-    await fetch(`/api/ideas/${idea.id}/publish`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "publish", headline }),
-    });
-    setLoading(false);
-    setDialog(null);
-    router.refresh();
+    setError(null);
+    try {
+      const res = await fetch(`/api/ideas/${idea.id}/publish`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "publish", headline }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        setError(data.error ?? `Publish failed (${res.status})`);
+        return;
+      }
+      setDialog(null);
+      router.refresh();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Publish failed");
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function doUnpublish() {
     setLoading(true);
-    await fetch(`/api/ideas/${idea.id}/publish`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "unpublish" }),
-    });
-    setLoading(false);
-    setDialog(null);
-    router.refresh();
+    setError(null);
+    try {
+      const res = await fetch(`/api/ideas/${idea.id}/publish`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "unpublish" }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        setError(data.error ?? `Unpublish failed (${res.status})`);
+        return;
+      }
+      setDialog(null);
+      router.refresh();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Unpublish failed");
+    } finally {
+      setLoading(false);
+    }
   }
 
   const slug = idea.portfolio?.slug;
@@ -48,7 +71,7 @@ export default function PublishToggle({ idea }: { idea: Idea }) {
         {isPublished ? (
           <div>
             <button
-              onClick={() => setDialog("unpublish")}
+              onClick={() => { setError(null); setDialog("unpublish"); }}
               className="flex items-center gap-2 rounded border px-3 py-1.5 text-xs font-medium transition-colors"
               style={{ borderColor: "rgba(74,222,128,0.4)", color: "#4ade80", backgroundColor: "rgba(74,222,128,0.06)" }}
             >
@@ -69,7 +92,7 @@ export default function PublishToggle({ idea }: { idea: Idea }) {
           </div>
         ) : (
           <button
-            onClick={() => hasNick ? setDialog("publish") : undefined}
+            onClick={() => hasNick ? (setError(null), setDialog("publish")) : undefined}
             disabled={!hasNick}
             title={!hasNick ? "Triage this idea before publishing." : undefined}
             className="rounded border px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-40"
@@ -115,6 +138,12 @@ export default function PublishToggle({ idea }: { idea: Idea }) {
               </p>
             )}
 
+            {error && (
+              <p className="mb-3 text-xs" style={{ color: "#f87171" }}>
+                {error}
+              </p>
+            )}
+
             <div className="flex gap-2">
               <button
                 onClick={doPublish}
@@ -125,7 +154,7 @@ export default function PublishToggle({ idea }: { idea: Idea }) {
                 {loading ? "Publishing…" : "Publish"}
               </button>
               <button
-                onClick={() => setDialog(null)}
+                onClick={() => { setDialog(null); setError(null); }}
                 className="rounded px-4 py-1.5 text-xs transition-colors"
                 style={{ color: "var(--studio-fg-muted)" }}
               >
@@ -152,6 +181,11 @@ export default function PublishToggle({ idea }: { idea: Idea }) {
             <p className="mb-5 text-sm" style={{ color: "var(--studio-fg-muted)" }}>
               It will no longer appear on your public portfolio.
             </p>
+            {error && (
+              <p className="mb-3 text-xs" style={{ color: "#f87171" }}>
+                {error}
+              </p>
+            )}
             <div className="flex gap-2">
               <button
                 onClick={doUnpublish}
@@ -162,7 +196,7 @@ export default function PublishToggle({ idea }: { idea: Idea }) {
                 {loading ? "Unpublishing…" : "Unpublish"}
               </button>
               <button
-                onClick={() => setDialog(null)}
+                onClick={() => { setDialog(null); setError(null); }}
                 className="rounded px-4 py-1.5 text-xs transition-colors"
                 style={{ color: "var(--studio-fg-muted)" }}
               >

@@ -1,42 +1,49 @@
 import { createClient } from "@/lib/supabase/server";
+import {
+  collectTakenSlugs,
+  resolvePublishSlug,
+} from "@/lib/portfolio/slug";
 import { NextRequest, NextResponse } from "next/server";
 import type { Portfolio } from "@/lib/types";
 
-function generateSlug(title: string): string {
-  return title
-    .toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, "")
-    .replace(/[\s]+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, 60);
-}
-
-async function uniqueSlug(supabase: Awaited<ReturnType<typeof createClient>>, base: string, excludeId: string): Promise<string> {
-  const { data } = await supabase
+async function takenSlugsFor(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  excludeId: string,
+): Promise<{ ok: true; taken: Set<string> } | { ok: false; error: string }> {
+  // Spec: uniqueness across ALL ideas — unpublished rows still reserve their slug.
+  const { data, error } = await supabase
     .from("ideas")
     .select("id, portfolio")
-    .eq("published", true)
     .neq("id", excludeId);
 
-  const existingSlugs = new Set(
-    (data ?? []).map((r: { portfolio?: { slug?: string } }) => r.portfolio?.slug).filter(Boolean)
-  );
+  if (error) {
+    return { ok: false, error: error.message };
+  }
 
-  if (!existingSlugs.has(base)) return base;
-  let n = 2;
-  while (existingSlugs.has(`${base}-${n}`)) n++;
-  return `${base}-${n}`;
+  return {
+    ok: true,
+    taken: collectTakenSlugs(
+      (data ?? []) as Array<{ portfolio?: { slug?: string | null } | null }>,
+    ),
+  };
 }
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
-  const { action, headline: providedHeadline } = await request.json();
 
-  if (!["publish", "unpublish"].includes(action)) {
+  let body: { action?: string; headline?: string };
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+
+  const { action, headline: providedHeadline } = body;
+
+  if (!["publish", "unpublish"].includes(action ?? "")) {
     return NextResponse.json({ error: "action must be publish or unpublish" }, { status: 400 });
   }
 
@@ -58,10 +65,20 @@ export async function POST(
 
     const triage = idea.triage as { title?: string; triage_reasoning?: string };
     const title = triage.title ?? "";
-    const baseSlug = generateSlug(title);
-    const slug = await uniqueSlug(supabase, baseSlug, id);
-
     const existing = idea.portfolio as Portfolio | null;
+
+    const takenResult = await takenSlugsFor(supabase, id);
+    if (!takenResult.ok) {
+      return NextResponse.json({ error: takenResult.error }, { status: 500 });
+    }
+
+    const slug = resolvePublishSlug({
+      title,
+      ideaId: id,
+      existingSlug: existing?.slug,
+      takenSlugs: takenResult.taken,
+    });
+
     const headline =
       providedHeadline ??
       existing?.headline ??
@@ -71,7 +88,7 @@ export async function POST(
       published: true,
       published_at: existing?.published_at ?? new Date().toISOString(),
       unpublished_at: null,
-      slug: existing?.slug ?? slug,
+      slug,
       headline,
       versions: existing?.versions ?? [],
       active_version_id: existing?.active_version_id ?? null,
@@ -79,7 +96,15 @@ export async function POST(
       chatbot_context: existing?.chatbot_context ?? null,
     };
 
-    await supabase.from("ideas").update({ published: true, portfolio }).eq("id", id);
+    const { error: updateError } = await supabase
+      .from("ideas")
+      .update({ published: true, portfolio })
+      .eq("id", id);
+
+    if (updateError) {
+      return NextResponse.json({ error: updateError.message }, { status: 500 });
+    }
+
     return NextResponse.json({ ok: true, slug: portfolio.slug, headline: portfolio.headline });
   }
 
@@ -97,6 +122,14 @@ export async function POST(
     chatbot_context: existing.chatbot_context ?? null,
   };
 
-  await supabase.from("ideas").update({ published: false, portfolio }).eq("id", id);
+  const { error: updateError } = await supabase
+    .from("ideas")
+    .update({ published: false, portfolio })
+    .eq("id", id);
+
+  if (updateError) {
+    return NextResponse.json({ error: updateError.message }, { status: 500 });
+  }
+
   return NextResponse.json({ ok: true });
 }
