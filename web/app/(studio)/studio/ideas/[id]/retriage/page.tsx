@@ -3,13 +3,13 @@
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import {
+  buildNextUserTurn,
+  dropStreamingPlaceholders,
+  type TriageChatMessage,
+} from "@/lib/triage/history";
 
-type Role = "user" | "assistant";
-interface ChatMessage {
-  role: Role;
-  content: string;
-  streaming?: boolean;
-}
+type ChatMessage = TriageChatMessage;
 
 interface TriageSummary {
   title: string;
@@ -75,6 +75,7 @@ export default function RetrtagePage() {
       const decoder = new TextDecoder();
       let buf = "";
       let accText = "";
+      let settled = false;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -107,6 +108,7 @@ export default function RetrtagePage() {
             }
 
             if (evt.done && evt.idea_id) {
+              settled = true;
               setMessages((prev) => {
                 const next = [...prev];
                 next[next.length - 1] = {
@@ -119,15 +121,21 @@ export default function RetrtagePage() {
               setTriage((evt.triage ?? null) as TriageSummary | null);
               setPhase("done");
             } else if (evt.turn_done) {
-              setMessages((prev) => {
-                const next = [...prev];
-                next[next.length - 1] = {
-                  role: "assistant",
-                  content: accText,
-                  streaming: false,
-                };
-                return next;
-              });
+              settled = true;
+              if (!accText.trim()) {
+                setMessages((prev) => dropStreamingPlaceholders(prev));
+                setError("Empty reply from model — try sending again.");
+              } else {
+                setMessages((prev) => {
+                  const next = [...prev];
+                  next[next.length - 1] = {
+                    role: "assistant",
+                    content: accText,
+                    streaming: false,
+                  };
+                  return next;
+                });
+              }
             }
           } catch (parseErr) {
             if (parseErr instanceof Error && parseErr.message !== "Unexpected end of JSON input") {
@@ -136,8 +144,13 @@ export default function RetrtagePage() {
           }
         }
       }
+
+      if (!settled) {
+        setMessages((prev) => dropStreamingPlaceholders(prev));
+        setError("Connection interrupted — try sending again.");
+      }
     } catch (err) {
-      setMessages((prev) => prev.filter((m) => !m.streaming));
+      setMessages((prev) => dropStreamingPlaceholders(prev));
       setError(err instanceof Error ? err.message : "Something went wrong");
     } finally {
       setLoading(false);
@@ -160,13 +173,10 @@ export default function RetrtagePage() {
     if (!text || loading) return;
     setInput("");
 
-    const userMsg: ChatMessage = { role: "user", content: text };
-    const nextMessages = [...messages.filter((m) => !m.streaming), userMsg];
+    const nextMessages = buildNextUserTurn(messages, text);
     setMessages(nextMessages);
 
-    await streamRetriage(
-      nextMessages.map((m) => ({ role: m.role, content: m.content }))
-    );
+    await streamRetriage(nextMessages);
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {

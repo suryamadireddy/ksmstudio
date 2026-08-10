@@ -3,6 +3,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { NextRequest } from "next/server";
 import { REASONING_MODEL } from "@/lib/models";
 import { TRIAGE_SYSTEM_PROMPT_TEMPLATE, COMPLETE_INTERVIEW_TOOL } from "@/lib/triage-shared";
+import { sanitizeMessagesForAnthropic } from "@/lib/triage/history";
 
 export const dynamic = "force-dynamic";
 
@@ -79,10 +80,16 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    messages = body.messages;
-    if (!Array.isArray(messages) || messages.length === 0) {
+    if (!Array.isArray(body.messages) || body.messages.length === 0) {
       throw new Error("messages array required");
     }
+    const sanitized = sanitizeMessagesForAnthropic(body.messages);
+    if (!sanitized) {
+      throw new Error(
+        "messages must alternate user/assistant, start and end with user, and have non-empty content",
+      );
+    }
+    messages = sanitized;
   } catch (e) {
     return new Response(
       JSON.stringify({ error: e instanceof Error ? e.message : "Invalid request" }),
