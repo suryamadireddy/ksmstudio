@@ -37,6 +37,7 @@ import anthropic
 
 from config import ANTHROPIC_API_KEY, REASONING_MODEL as MODEL
 from db import get_client
+from triage_validate import validate_fields as _validate_fields
 
 # ── Prompts & tool definition ─────────────────────────────────────────────────
 
@@ -533,107 +534,6 @@ def stream_claude(
 
 
 # ── Supabase write ────────────────────────────────────────────────────────────
-
-_TIME_HORIZON_MAP = {
-    # exact values pass through; map common variants to valid enum
-    "immediate": "immediate",
-    "3mo": "3mo",
-    "6mo": "6mo",
-    "1yr": "1yr",
-    "3yr+": "3yr+",
-    # approximate mappings for non-enum strings Claude may return
-    "weeks": "immediate",
-    "days": "immediate",
-    "week": "immediate",
-    "month": "3mo",
-    "months": "3mo",
-    "3 months": "3mo",
-    "6 months": "6mo",
-    "six months": "6mo",
-    "year": "1yr",
-    "years": "3yr+",
-    "1 year": "1yr",
-    "2 years": "3yr+",
-    "3 years": "3yr+",
-    "3+ years": "3yr+",
-    "multi-year": "3yr+",
-}
-
-
-def _derive_category(effort: int, impact: int) -> int:
-    if effort <= 2 and impact >= 3:
-        return 1
-    if effort >= 3 and impact >= 4:
-        return 2
-    if effort <= 2 and impact <= 2:
-        return 3
-    if effort >= 3 and impact <= 2:
-        return 4
-    # gap case (e.g. effort=3, impact=3): impact ≥ 3 → category 2, else 4
-    return 2 if impact >= 3 else 4
-
-
-def _validate_fields(idea_data: dict) -> dict:
-    """
-    Validate and correct category and time_horizon before writing to Supabase.
-    Returns a copy of idea_data with any corrections applied.
-    """
-    data = dict(idea_data)
-
-    # ── category ─────────────────────────────────────────────────────────────
-    cat = data.get("category")
-    if not isinstance(cat, int) or cat not in (1, 2, 3, 4):
-        effort = data.get("effort_score", 3)
-        impact = data.get("impact_score", 3)
-        derived = _derive_category(effort, impact)
-        print(
-            f"\033[33m⚠ category value {cat!r} is invalid — "
-            f"derived {derived} from effort={effort}, impact={impact}\033[0m"
-        )
-        data["category"] = derived
-
-    # ── disposition ──────────────────────────────────────────────────────────
-    CATEGORY_DISPOSITION = {1: "pursue", 2: "potential", 3: "park", 4: "discard"}
-    VALID_DISPOSITIONS = set(CATEGORY_DISPOSITION.values())
-    disp = data.get("disposition")
-    expected = CATEGORY_DISPOSITION.get(data["category"])
-    if disp not in VALID_DISPOSITIONS or disp != expected:
-        print(
-            f"\033[33m⚠ disposition {disp!r} corrected to {expected!r} "
-            f"(category {data['category']})\033[0m"
-        )
-        data["disposition"] = expected
-
-    # ── time_horizon ─────────────────────────────────────────────────────────
-    th = data.get("time_horizon", "")
-    mapped = _TIME_HORIZON_MAP.get(str(th).lower().strip())
-    if mapped is None:
-        # unknown value — fall back to "6mo" as a neutral midpoint
-        print(
-            f"\033[33m⚠ time_horizon value {th!r} is not a valid enum — "
-            f"defaulting to '6mo'\033[0m"
-        )
-        data["time_horizon"] = "6mo"
-    elif mapped != th:
-        print(
-            f"\033[33m⚠ time_horizon value {th!r} mapped to '{mapped}'\033[0m"
-        )
-        data["time_horizon"] = mapped
-
-    # ── kill_assumptions — normalize to object format ─────────────────────────
-    raw_ka = data.get("kill_assumptions", [])
-    normalized = []
-    for item in raw_ka:
-        if isinstance(item, str):
-            normalized.append({"text": item, "status": "untested"})
-        elif isinstance(item, dict) and "text" in item:
-            if "status" not in item:
-                item["status"] = "untested"
-            normalized.append(item)
-    data["kill_assumptions"] = normalized
-
-    return data
-
 
 def save_idea(idea_data: dict, transcript: list, raw_input: str, domain: str = "product") -> str:
     """Insert a new row into `ideas`; return the generated idea_id."""

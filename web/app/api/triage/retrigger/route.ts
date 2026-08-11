@@ -3,50 +3,10 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { NextRequest } from "next/server";
 import { REASONING_MODEL } from "@/lib/models";
 import { TRIAGE_SYSTEM_PROMPT_TEMPLATE, COMPLETE_INTERVIEW_TOOL } from "@/lib/triage-shared";
+import { validateTriageFields } from "@/lib/triage/validate";
 import type { Triage, TriageSnapshot } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
-
-// ── Shared helpers ────────────────────────────────────────────────────────────
-
-const TIME_HORIZON_MAP: Record<string, string> = {
-  immediate: "immediate", "3mo": "3mo", "6mo": "6mo", "1yr": "1yr", "3yr+": "3yr+",
-  weeks: "immediate", days: "immediate", week: "immediate",
-  month: "3mo", months: "3mo", "3 months": "3mo",
-  "6 months": "6mo", "six months": "6mo",
-  year: "1yr", years: "3yr+", "1 year": "1yr",
-  "2 years": "3yr+", "3 years": "3yr+", "3+ years": "3yr+", "multi-year": "3yr+",
-};
-
-const CATEGORY_DISPOSITION: Record<number, string> = {
-  1: "pursue", 2: "potential", 3: "park", 4: "discard",
-};
-
-function deriveCategory(effort: number, impact: number): number {
-  if (effort <= 2 && impact >= 3) return 1;
-  if (effort >= 3 && impact >= 4) return 2;
-  if (effort <= 2 && impact <= 2) return 3;
-  if (effort >= 3 && impact <= 2) return 4;
-  return impact >= 3 ? 2 : 4;
-}
-
-function validateFields(data: Record<string, unknown>): Record<string, unknown> {
-  const out = { ...data };
-  const cat = out.category;
-  if (typeof cat !== "number" || ![1, 2, 3, 4].includes(cat as number)) {
-    out.category = deriveCategory(
-      (out.effort_score as number) ?? 3,
-      (out.impact_score as number) ?? 3
-    );
-  }
-  const expected = CATEGORY_DISPOSITION[out.category as number];
-  if (!["pursue", "potential", "park", "discard"].includes(out.disposition as string) || out.disposition !== expected) {
-    out.disposition = expected;
-  }
-  const th = String(out.time_horizon ?? "").toLowerCase().trim();
-  out.time_horizon = TIME_HORIZON_MAP[th] ?? "6mo";
-  return out;
-}
 
 // ── Re-triage context builder ─────────────────────────────────────────────────
 
@@ -225,7 +185,7 @@ export async function POST(req: NextRequest) {
 
         if (toolBlock && toolBlock.name === "complete_interview") {
           const raw = toolBlock.input as Record<string, unknown>;
-          const validated = validateFields(raw);
+          const validated = validateTriageFields(raw);
 
           // Fetch fresh triage to build history snapshot
           const { data: freshRow } = await supabase
