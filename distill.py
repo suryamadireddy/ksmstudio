@@ -24,6 +24,7 @@ import anthropic
 
 from config import ANTHROPIC_API_KEY, REASONING_MODEL, PIPELINE_MODEL
 from db import get_service_client
+from distill_context import build_artifact_inventory, build_idea_context
 
 client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
@@ -422,114 +423,48 @@ def _call_tool(model: str, system: str, user_message: str, tool: dict) -> dict:
     raise RuntimeError(f"Tool {tool['name']} not called by model")
 
 
-def _build_idea_context(idea: dict) -> str:
-    """Format all idea data into a readable context block."""
-    t = idea.get("triage") or {}
-    d = idea.get("development") or {}
-    outcomes = idea.get("outcomes") or {}
-
-    lines = [
-        f"## Idea\n\nRaw input: {idea.get('raw_input', '')}",
-        f"Domain: {idea.get('domain', '')}",
-        f"State: {idea.get('state', '')}",
-        f"Created: {idea.get('created_at', '')[:10]}",
-        "",
-    ]
-
-    if t:
-        lines += [
-            "## Triage",
-            f"Title: {t.get('title', '')}",
-            f"Effort: {t.get('effort_score')}/5, Impact: {t.get('impact_score')}/5, "
-            f"Confidence: {t.get('confidence')}/5",
-            f"Disposition: {t.get('disposition')} (category {t.get('category')})",
-            f"Who benefits: {t.get('who_benefits', '')}",
-            f"Reasoning: {t.get('triage_reasoning', '')}",
-            "Kill assumptions:",
-        ]
-        for a in t.get("kill_assumptions", []):
-            text = a["text"] if isinstance(a, dict) else a
-            status = a.get("status", "untested") if isinstance(a, dict) else "untested"
-            lines.append(f"  - {text} [{status}]")
-        lines.append("")
-
-    if d.get("problem_statement"):
-        lines += [
-            "## Sharpening",
-            f"Problem statement: {d.get('problem_statement', '')}",
-            f"Core hypothesis: {d.get('core_hypothesis', '')}",
-            f"Competitive landscape: {d.get('competitive_landscape', '')[:500]}",
-            "Open questions:",
-        ]
-        for q in d.get("open_questions", []):
-            lines.append(f"  - {q}")
-        lines.append("")
-        personas = d.get("personas") or []
-        if isinstance(personas, str):
-            try:
-                personas = json.loads(personas)
-            except Exception:
-                personas = []
-        if personas:
-            lines.append("Personas:")
-            for p in personas:
-                lines.append(f"  - {p.get('label', '')}: {p.get('description', '')}")
-        lines.append("")
-
-    if d.get("prd"):
-        lines.append("PRD: exists")
-    if d.get("builder_brief"):
-        lines.append("Builder brief: exists")
-
-    entries = outcomes.get("entries") or []
-    if entries:
-        lines += ["## Outcomes", f"Status: {outcomes.get('current_status', '')}"]
-        for e in entries:
-            lines.append(f"  [{e.get('date', '')[:10]}] {e.get('type', '')}: {e.get('title', '')} — {e.get('description', '')}")
-        lines.append("")
-
-    return "\n".join(lines)
+# Context assembly lives in distill_context.py (unit-testable without env).
+_build_idea_context = build_idea_context
+_build_artifact_inventory = build_artifact_inventory
 
 
-def _build_artifact_inventory(idea: dict) -> str:
-    d = idea.get("development") or {}
-    items = []
-    if d.get("problem_statement"):
-        items.append("problem_statement")
-    if d.get("core_hypothesis"):
-        items.append("core_hypothesis")
-    if d.get("research_synthesis"):
-        items.append("research_synthesis")
-    if d.get("competitive_landscape"):
-        items.append("competitive_landscape")
-    if d.get("personas"):
-        items.append("personas")
-    if d.get("open_questions"):
-        items.append("open_questions")
-    if d.get("prd"):
-        items.append("prd")
-    if d.get("mvp_scope"):
-        items.append("mvp_scope")
-    if d.get("next_steps"):
-        items.append("next_steps")
-    if d.get("builder_brief"):
-        items.append("builder_brief")
-    outcomes = idea.get("outcomes") or {}
-    if outcomes.get("entries"):
-        items.append("outcomes")
-    return "Available content: " + (", ".join(items) if items else "none beyond triage")
+def _fetch_journal_entries(db, idea_id: str) -> list:
+    result = (
+        db.table("journal_entries")
+        .select("*")
+        .eq("idea_id", idea_id)
+        .order("created_at")
+        .execute()
+    )
+    return result.data or []
+
+
+def _fetch_refinements(db, idea_id: str) -> list:
+    result = (
+        db.table("refinements")
+        .select("*")
+        .eq("idea_id", idea_id)
+        .order("created_at")
+        .execute()
+    )
+    return result.data or []
 
 
 # ── Three passes ───────────────────────────────────────────────────────────────
 
-def pass1_character(idea: dict, existing_character: dict | None = None) -> dict:
+def pass1_character(
+    idea: dict,
+    existing_character: dict | None = None,
+    journal_entries: list | None = None,
+    refinements: list | None = None,
+) -> dict:
     """Pass 1: derive character card. Returns CharacterCard dict."""
     if existing_character:
         print("  [pass 1] reusing existing character card", file=sys.stderr)
         return existing_character
 
     print("[pass 1] character derivation...", file=sys.stderr)
-    context = _build_idea_context(idea)
+    context = _build_idea_context(idea, journal_entries, refinements)
     result = _call_tool(
         REASONING_MODEL,
         CHARACTER_SYSTEM_PROMPT,
@@ -545,10 +480,12 @@ def pass2_presentation(
     idea: dict,
     prior_versions: list,
     creative_brief: str | None,
+    journal_entries: list | None = None,
+    refinements: list | None = None,
 ) -> dict:
     """Pass 2: compose presentation spec. Returns PresentationSpec dict."""
     print("[pass 2] presentation composition...", file=sys.stderr)
-    inventory = _build_artifact_inventory(idea)
+    inventory = _build_artifact_inventory(idea, journal_entries, refinements)
 
     prior_block = ""
     if prior_versions:
@@ -586,10 +523,12 @@ def pass3_content(
     presentation_spec: dict,
     idea: dict,
     creative_brief: str | None,
+    journal_entries: list | None = None,
+    refinements: list | None = None,
 ) -> dict:
     """Pass 3: write content. Returns dict with public_summary, chatbot_context, voice."""
     print("[pass 3] content generation...", file=sys.stderr)
-    context = _build_idea_context(idea)
+    context = _build_idea_context(idea, journal_entries, refinements)
     brief_block = f"\n\n## Creative brief\n{creative_brief}" if creative_brief else ""
 
     user_message = (
@@ -641,6 +580,12 @@ def distill_idea(
         print("\033[31m✗ Idea has not been sharpened yet. Run sharpen.py first.\033[0m")
         sys.exit(1)
 
+    # Journal/refinements are separate tables (not on the ideas row). Spec and
+    # CHARACTER_SYSTEM_PROMPT require them; omitting them bakes stale public copy
+    # after confirmed converse/extracted refinements.
+    journal_entries = _fetch_journal_entries(db, idea_id)
+    refinements = _fetch_refinements(db, idea_id)
+
     portfolio = idea.get("portfolio") or {}
     prior_versions: list = portfolio.get("versions") or []
 
@@ -654,13 +599,24 @@ def distill_idea(
     print(f"  Idea: {idea_id}", file=sys.stderr)
     if creative_brief:
         print(f"  Brief: {creative_brief}", file=sys.stderr)
+    print(
+        f"  Context: {len(journal_entries)} journal, {len(refinements)} refinements",
+        file=sys.stderr,
+    )
     print(f"{'═' * 60}\n", file=sys.stderr)
 
     # Pass 1 — Character
-    character_card = pass1_character(idea, existing_character if mode != "full_regen" else None)
+    character_card = pass1_character(
+        idea,
+        existing_character if mode != "full_regen" else None,
+        journal_entries,
+        refinements,
+    )
 
     # Pass 2 — Presentation
-    presentation_spec = pass2_presentation(character_card, idea, prior_versions, creative_brief)
+    presentation_spec = pass2_presentation(
+        character_card, idea, prior_versions, creative_brief, journal_entries, refinements
+    )
 
     # Pass 3 — Content
     if mode == "presentation_only" and existing_summary:
@@ -671,7 +627,14 @@ def distill_idea(
             "voice": latest_version.get("voice", {"summary": "", "sample_lines": []}),
         }
     else:
-        content = pass3_content(character_card, presentation_spec, idea, creative_brief)
+        content = pass3_content(
+            character_card,
+            presentation_spec,
+            idea,
+            creative_brief,
+            journal_entries,
+            refinements,
+        )
 
     # Assemble version
     version_id = str(uuid.uuid4())
